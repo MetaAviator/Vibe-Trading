@@ -60,3 +60,17 @@ def _trade_fee(raw: Any, side: str, require_readable_fees: bool) -> float:
             "Correct non-missing fee values to finite numbers before analysis."
         )
     return fee
+
+
+def _trade_price(raw: Any, side: str, require_trade_prices: bool) -> float:
+    """Keep legacy fallback unless a caller requires readable fill prices."""
+    if not require_trade_prices or side == "dividend":
+        return _to_float(raw)
+    price = _to_float(raw, default=math.nan)
+    if not math.isfinite(price):
+        raise ValueError(
+            "Trade journal contains missing or invalid buy/sell prices. "
+            "Correct price values to finite numbers before analysis."
+        )
+    return price
+

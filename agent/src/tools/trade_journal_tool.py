@@ -711,7 +711,7 @@ def analyze_trade_journal(file_path: str, analysis_type: str = "full", filter_ex
         )
 
     try:
-        fmt, records = parse_file(path, require_readable_fees=True)
+        fmt, records = parse_file(path, require_readable_fees=True, require_trade_prices=True)
     except (ValueError, FileNotFoundError) as exc:
         return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False)
 

@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 
 from src.market_data import FIAT_CODES as _FIAT_CODES
-from src.tools.trade_journal_numeric import _to_float, _trade_fee
+from src.tools.trade_journal_numeric import _to_float, _trade_fee, _trade_price
 
 FormatName = str  # "tonghuashun" | "eastmoney" | "futu" | "generic" | "unknown"
 
@@ -305,7 +305,7 @@ def _qualify_a_share(code: str) -> str:
 
 
 def parse_tonghuashun(
-    df: pd.DataFrame, *, require_readable_fees: bool = False
+    df: pd.DataFrame, *, require_readable_fees: bool = False, require_trade_prices: bool = False
 ) -> list[TradeRecord]:
     """Parse 同花顺 exports.
 
@@ -320,9 +320,9 @@ def parse_tonghuashun(
         if _is_skippable_side(row.get("操作")):
             continue
         qty = _to_float(row.get("成交数量"))
-        price = _to_float(row.get("成交价格"))
-        amount = _to_float(row.get("成交金额")) or qty * price
         side = _normalize_side(row.get("操作"))
+        price = _trade_price(row.get("成交价格"), side, require_trade_prices)
+        amount = _to_float(row.get("成交金额")) or qty * price
         if side == "dividend":
             amount = _dividend_amount(row, amount)
         fee = (
@@ -373,7 +373,7 @@ def _ths_datetime(val: Any) -> str:
 
 
 def parse_eastmoney(
-    df: pd.DataFrame, *, require_readable_fees: bool = False
+    df: pd.DataFrame, *, require_readable_fees: bool = False, require_trade_prices: bool = False
 ) -> list[TradeRecord]:
     """Parse 东方财富 exports.
 
@@ -407,9 +407,9 @@ def parse_eastmoney(
             iso_date = raw_date
         dt = f"{iso_date} {raw_time}".strip()
         qty = _to_float(row.get("成交数量"))
-        price = _to_float(row.get("成交均价"))
-        amount = _to_float(row.get("成交金额")) or qty * price
         side = _normalize_side(row.get("买卖标志"))
+        price = _trade_price(row.get("成交均价"), side, require_trade_prices)
+        amount = _to_float(row.get("成交金额")) or qty * price
         if side == "dividend":
             amount = _dividend_amount(row, amount)
         fee = (
@@ -504,7 +504,7 @@ def _futu_datetime(date_val: Any, time_val: Any) -> str:
 
 
 def parse_futu(
-    df: pd.DataFrame, *, require_readable_fees: bool = False
+    df: pd.DataFrame, *, require_readable_fees: bool = False, require_trade_prices: bool = False
 ) -> list[TradeRecord]:
     """Parse 富途 exports (English headers, HK+US mix).
 
@@ -522,9 +522,9 @@ def parse_futu(
         dt = _futu_datetime(row.get("Date", ""), row.get("Time", ""))
         symbol = str(raw_symbol).strip().upper()
         qty = _to_float(row.get("Quantity"))
-        price = _to_float(row.get("Price"))
-        amount = _to_float(row.get("Amount")) or qty * price
         futu_side = _normalize_side(side_raw)
+        price = _trade_price(row.get("Price"), futu_side, require_trade_prices)
+        amount = _to_float(row.get("Amount")) or qty * price
         if futu_side == "dividend":
             amount = _dividend_amount(row, amount)
         fee = (
@@ -546,7 +546,7 @@ def parse_futu(
 
 
 def parse_generic(
-    df: pd.DataFrame, *, require_readable_fees: bool = False
+    df: pd.DataFrame, *, require_readable_fees: bool = False, require_trade_prices: bool = False
 ) -> list[TradeRecord]:
     """Parse a generic CSV with lowercase English headers.
 
@@ -601,9 +601,11 @@ def parse_generic(
             dt = ""
         symbol = str(row.get(sym_col, "")).strip() if sym_col else ""
         qty = _to_float(row.get(qty_col)) if qty_col else 0.0
-        price = _to_float(row.get(price_col)) if price_col else 0.0
-        amount = _to_float(row.get(amount_col)) if amount_col else qty * price
         generic_side = _normalize_side(row.get(side_col))
+        price = _trade_price(
+            row.get(price_col) if price_col else None, generic_side, require_trade_prices
+        )
+        amount = _to_float(row.get(amount_col)) if amount_col else qty * price
         fee = _trade_fee(
             row.get(fee_col) if fee_col else None, generic_side, require_readable_fees
         )
@@ -717,12 +719,14 @@ _PARSERS = {
 
 
 def parse_file(
-    path: str | Path, *, require_readable_fees: bool = False
+    path: str | Path, *, require_readable_fees: bool = False, require_trade_prices: bool = False
 ) -> tuple[FormatName, list[TradeRecord]]:
     """End-to-end: load file, detect format, parse.
 
     Args:
         path: File path.
+        require_trade_prices: Reject missing or non-finite buy/sell prices.
+            Explicit zero/negative prices and dividends retain their meaning.
         require_readable_fees: Reject non-missing, unreadable buy/sell fees.
             Missing values, finite rebates and dividends retain legacy behavior.
             Defaults to False for existing parser consumers.
@@ -738,13 +742,19 @@ def parse_file(
     fmt = detect_format(df)
     if fmt == "unknown":
         try:
-            records = parse_generic(df, require_readable_fees=require_readable_fees)
+            records = parse_generic(
+                df, require_readable_fees=require_readable_fees,
+                require_trade_prices=require_trade_prices,
+            )
             if records and records[0].symbol:
                 return "generic", records
         except Exception:
             pass
         raise ValueError(f"Unrecognized trade journal format. Columns: {list(df.columns)}")
-    return fmt, _PARSERS[fmt](df, require_readable_fees=require_readable_fees)
+    return fmt, _PARSERS[fmt](
+        df, require_readable_fees=require_readable_fees,
+        require_trade_prices=require_trade_prices,
+    )
 
 
 def records_to_dataframe(records: list[TradeRecord]) -> pd.DataFrame:
