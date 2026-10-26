@@ -1590,6 +1590,11 @@ applied; correct missing or invalid quantities and retry. Cash dividends may
 have zero quantity.
 Rows with equal timestamps retain their source-file order for FIFO matching.
 This preserves the supplied sequence; it does not reconstruct missing fill order.
+Non-missing buy/sell fee values must parse as finite numbers before analysis,
+including for records outside a filter. Correct malformed fees and retry.
+Missing columns, blank/NA fees and finite rebates retain their existing behavior;
+a missing fee is not proof of zero actual cost. Default parser calls and cash
+dividend fee handling are unchanged.
 
 ### Market Research
 

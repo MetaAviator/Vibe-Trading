@@ -10,7 +10,6 @@ Excel (.xlsx/.xls) always opens as utf-8 internally via openpyxl/xlrd.
 from __future__ import annotations
 
 import re
-import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -18,14 +17,7 @@ from typing import Any
 import pandas as pd
 
 from src.market_data import FIAT_CODES as _FIAT_CODES
-
-# Broker CSV/Excel cells often include ISO codes or currency glyphs around the
-# number (Schwab/IBKR "$1,234.56", JP/CN "¥1000"). Commas are already stripped;
-# without stripping these tokens float() fails and we silently store 0.0.
-_CURRENCY_TOKEN_RE = re.compile(
-    r"(?i)(?<![A-Za-z])(?:USDT|USDC|USD|EUR|GBP|JPY|CNY|HKD)(?![A-Za-z])|[$€£¥￥]"
-)
-
+from src.tools.trade_journal_numeric import _to_float, _trade_fee
 
 FormatName = str  # "tonghuashun" | "eastmoney" | "futu" | "generic" | "unknown"
 
@@ -312,38 +304,9 @@ def _qualify_a_share(code: str) -> str:
     return code
 
 
-def _to_float(val: Any, default: float = 0.0) -> float:
-    """Safely cast to float; return default on failure."""
-    if val is None:
-        return default
-    try:
-        s = str(val).strip().replace("\u2212", "-")
-        s = _CURRENCY_TOKEN_RE.sub("", s)
-        if "," in s and "." in s and s.rfind(",") > s.rfind("."):
-            # "1.234,56": the rightmost separator is the decimal one, so dots
-            # group thousands. Stripping only commas read it as 1.23456.
-            s = s.replace(".", "").replace(",", ".")
-        else:
-            s = s.replace(",", "")
-        s = s.strip()
-        if not s:
-            return default
-        # Accounting exports write a negative as "(1,234.50)" (optionally
-        # "$(1,234.50)"); without this float() fails and the cell becomes 0.0.
-        negate = s.startswith("(") and s.endswith(")")
-        if negate:
-            s = s[1:-1].strip()
-            if not s or s[0] in "+-":
-                return default
-        parsed = float(s)
-        if negate:
-            parsed = -parsed
-        return parsed if math.isfinite(parsed) else default
-    except (ValueError, TypeError):
-        return default
-
-
-def parse_tonghuashun(df: pd.DataFrame) -> list[TradeRecord]:
+def parse_tonghuashun(
+    df: pd.DataFrame, *, require_readable_fees: bool = False
+) -> list[TradeRecord]:
     """Parse 同花顺 exports.
 
     Expected columns: 成交时间, 证券代码, 证券名称, 操作, 成交数量, 成交价格,
@@ -362,7 +325,11 @@ def parse_tonghuashun(df: pd.DataFrame) -> list[TradeRecord]:
         side = _normalize_side(row.get("操作"))
         if side == "dividend":
             amount = _dividend_amount(row, amount)
-        fee = _to_float(row.get("手续费")) + _to_float(row.get("印花税")) + _to_float(row.get("过户费"))
+        fee = (
+            _trade_fee(row.get("手续费"), side, require_readable_fees)
+            + _trade_fee(row.get("印花税"), side, require_readable_fees)
+            + _trade_fee(row.get("过户费"), side, require_readable_fees)
+        )
         records.append(TradeRecord(
             datetime=_ths_datetime(row.get("成交时间", "")),
             symbol=_qualify_a_share(raw_code),
@@ -405,7 +372,9 @@ def _ths_datetime(val: Any) -> str:
     return text
 
 
-def parse_eastmoney(df: pd.DataFrame) -> list[TradeRecord]:
+def parse_eastmoney(
+    df: pd.DataFrame, *, require_readable_fees: bool = False
+) -> list[TradeRecord]:
     """Parse 东方财富 exports.
 
     Expected columns: 成交日期 (YYYYMMDD), 成交时间 (HH:MM:SS), 股票代码,
@@ -443,7 +412,10 @@ def parse_eastmoney(df: pd.DataFrame) -> list[TradeRecord]:
         side = _normalize_side(row.get("买卖标志"))
         if side == "dividend":
             amount = _dividend_amount(row, amount)
-        fee = _to_float(row.get("佣金")) + _to_float(row.get("印花税"))
+        fee = (
+            _trade_fee(row.get("佣金"), side, require_readable_fees)
+            + _trade_fee(row.get("印花税"), side, require_readable_fees)
+        )
         records.append(TradeRecord(
             datetime=dt,
             symbol=_qualify_a_share(raw_code),
@@ -531,7 +503,9 @@ def _futu_datetime(date_val: Any, time_val: Any) -> str:
     return f"{date} {time}".strip()
 
 
-def parse_futu(df: pd.DataFrame) -> list[TradeRecord]:
+def parse_futu(
+    df: pd.DataFrame, *, require_readable_fees: bool = False
+) -> list[TradeRecord]:
     """Parse 富途 exports (English headers, HK+US mix).
 
     Expected columns: Date, Time, Symbol, Name, Side, Quantity, Price,
@@ -553,7 +527,10 @@ def parse_futu(df: pd.DataFrame) -> list[TradeRecord]:
         futu_side = _normalize_side(side_raw)
         if futu_side == "dividend":
             amount = _dividend_amount(row, amount)
-        fee = _to_float(row.get("Commission")) + _to_float(row.get("Platform Fee"))
+        fee = (
+            _trade_fee(row.get("Commission"), futu_side, require_readable_fees)
+            + _trade_fee(row.get("Platform Fee"), futu_side, require_readable_fees)
+        )
         records.append(TradeRecord(
             datetime=dt,
             symbol=symbol,
@@ -568,7 +545,9 @@ def parse_futu(df: pd.DataFrame) -> list[TradeRecord]:
     return records
 
 
-def parse_generic(df: pd.DataFrame) -> list[TradeRecord]:
+def parse_generic(
+    df: pd.DataFrame, *, require_readable_fees: bool = False
+) -> list[TradeRecord]:
     """Parse a generic CSV with lowercase English headers.
 
     Matches columns case-insensitively. Expected (any alias in parens):
@@ -624,8 +603,10 @@ def parse_generic(df: pd.DataFrame) -> list[TradeRecord]:
         qty = _to_float(row.get(qty_col)) if qty_col else 0.0
         price = _to_float(row.get(price_col)) if price_col else 0.0
         amount = _to_float(row.get(amount_col)) if amount_col else qty * price
-        fee = _to_float(row.get(fee_col)) if fee_col else 0.0
         generic_side = _normalize_side(row.get(side_col))
+        fee = _trade_fee(
+            row.get(fee_col) if fee_col else None, generic_side, require_readable_fees
+        )
         generic_amount = amount or qty * price
         if generic_side == "dividend":
             generic_amount = _dividend_amount(row, generic_amount)
@@ -735,11 +716,16 @@ _PARSERS = {
 }
 
 
-def parse_file(path: str | Path) -> tuple[FormatName, list[TradeRecord]]:
+def parse_file(
+    path: str | Path, *, require_readable_fees: bool = False
+) -> tuple[FormatName, list[TradeRecord]]:
     """End-to-end: load file, detect format, parse.
 
     Args:
         path: File path.
+        require_readable_fees: Reject non-missing, unreadable buy/sell fees.
+            Missing values, finite rebates and dividends retain legacy behavior.
+            Defaults to False for existing parser consumers.
 
     Returns:
         (format_name, records). Falls back to generic if detection is unknown
@@ -752,13 +738,13 @@ def parse_file(path: str | Path) -> tuple[FormatName, list[TradeRecord]]:
     fmt = detect_format(df)
     if fmt == "unknown":
         try:
-            records = parse_generic(df)
+            records = parse_generic(df, require_readable_fees=require_readable_fees)
             if records and records[0].symbol:
                 return "generic", records
         except Exception:
             pass
         raise ValueError(f"Unrecognized trade journal format. Columns: {list(df.columns)}")
-    return fmt, _PARSERS[fmt](df)
+    return fmt, _PARSERS[fmt](df, require_readable_fees=require_readable_fees)
 
 
 def records_to_dataframe(records: list[TradeRecord]) -> pd.DataFrame:
