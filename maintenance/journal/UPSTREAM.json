@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "upstream_base": "b831575c5be13f0302054ca08fdd3fd6359aa1f6",
+  "maintenance_branch": "codex/rix-journal-maintenance",
+  "original_contributions": [
+    {
+      "kind": "fee readability",
+      "original_commit": "538cd4620d8f695ae86666281ce75da3912053cb",
+      "integrated_commit": "06003db4"
+    },
+    {
+      "kind": "price readability",
+      "original_commit": "6a8dd21d6b6c57eeee2fcd25a9bb0a401df8fd99",
+      "integrated_commit": "cd22e3bd",
+      "integration_note": "Both opts propagated; price helper shares numeric module. Original contribution branch unchanged."
+    }
+  ],
+  "verification_scope": "offline synthetic journal; real validation tracked separately"
+}

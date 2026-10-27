@@ -73,4 +73,3 @@ def _trade_price(raw: Any, side: str, require_trade_prices: bool) -> float:
             "Correct price values to finite numbers before analysis."
         )
     return price
-

@@ -1,0 +1,35 @@
+name: Rix journal offline verification
+
+on:
+  push:
+    branches: [codex/rix-journal-maintenance]
+    paths:
+      - maintenance/journal/**
+      - agent/src/tools/trade_journal*.py
+      - agent/tests/*journal*.py
+      - agent/tests/test_generic_split_datetime.py
+      - .github/workflows/rix-journal.yml
+  pull_request:
+    branches: [codex/rix-journal-maintenance]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install the hash-locked offline verification environment
+        run: python -m pip install --require-hashes -r maintenance/journal/requirements.lock
+      - name: Run journal tests without network access
+        run: python -m pytest agent/tests/test*journal*.py agent/tests/test_generic_split_datetime.py --disable-socket -q
+      - name: Check the independently linked synthetic ledger
+        run: python maintenance/journal/check_ledger.py --output maintenance/journal/artifacts/synthetic
+      - name: Verify index hygiene
+        run: python tools/ci_private_files_gate.py

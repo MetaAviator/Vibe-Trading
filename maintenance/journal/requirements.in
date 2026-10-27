@@ -1,0 +1,8 @@
+# Minimal offline journal verification environment, Python 3.12.
+# Kept separate from the full agent/provider/broker dependency set.
+pandas==2.3.3
+numpy==2.5.3
+pydantic==2.13.5
+openpyxl==3.1.5
+pytest==9.1.1
+pytest-socket==0.7.0

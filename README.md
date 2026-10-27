@@ -1,3 +1,5 @@
+> **Rix experimental maintenance branch:** see [Journal Lab](maintenance/journal/README.md) for the supported offline scope, source contracts, roadmap and reproducible checks. This branch retains the upstream project and license; it is not a claim of complete platform or live-account validation.
+
 <p align="center">
   <b>English</b> | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>
 </p>

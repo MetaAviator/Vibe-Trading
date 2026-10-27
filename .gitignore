@@ -1,4 +1,7 @@
 .venv/
+.venv-journal/
+/maintenance/journal/artifacts/
+/private-journal/
 agent/.venv/
 __pycache__/
 .pytest_cache/
