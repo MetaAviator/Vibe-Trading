@@ -2,6 +2,8 @@
 .venv-journal/
 /maintenance/journal/artifacts/
 /private-journal/
+# Local research contains private paths, paid-data profiles and handoff notes.
+/research/
 agent/.venv/
 __pycache__/
 .pytest_cache/

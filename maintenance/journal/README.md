@@ -4,6 +4,8 @@
 
 行情CSV与交易CSV分别定义；已有date,ticker,close格式属于[行情子合同](MARKET_DATA.md)，不能据此完成账户成本验收。
 
+本地 Sharadar stocks/SEP 价格快照现有独立的 [只读适配入口](MARKET_DATA.md#本地-sharadar-价格只读适配)：显式选择原始价格字段并核对 SHA256，输出价格与来源口径。它是本地研究工具，不自动接入账户 journal。无需新增依赖或下载订阅数据。
+
 ## 维护什么
 
 | 层次 | 本分支责任 |
