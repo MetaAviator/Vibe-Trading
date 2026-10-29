@@ -10,11 +10,12 @@
 | R3 可重复交付 | 最小hash锁、干净环境、禁网核心验证、同提交CI | 旧维护包09f26a2b已完成；[对应CI成功](https://github.com/MetaAviator/Vibe-Trading/actions/runs/40500975397) |
 | P1 研究行情口径/质量 | 本地快照身份、字段/复权、更新信息及唯一性/缺失/覆盖有证据 | 本地验收切片完成；私有数据与结果不入库，未知项不转为通过 |
 | P2 本地价格只读适配 | 显式price_field、固定hash、严格子集校验、来源元数据、合成验收 | 接口与CLI已实现，45项禁网合成验证通过；交付验收见R5 |
+| P3 可复现研究输入包 | 配置化筛选、确定性价格/来源/覆盖包、离线完整性与口径校验、合成及本地读取验收 | 已实现build/verify与合成样例；远程交付以本提交Actions为准 |
 | R5 实验分支交付 | 范围/版本/回退可追溯，实际交付提交通过对应CI | 旧包已交付；本次适配进入实验分支交付，远程验收以本提交Actions实际结果为准，尚无稳定Release |
 | R4 真实账户闭环 | 同源成交/费用现金/持仓，差异可解释，另一期间复测 | 用户选择暂缓；行情不能替代账户证据 |
 | R6 真实复盘alpha | R4通过且用户确认场景，对应发布验证通过 | 条件未满足，暂缓，不承诺日期 |
 
-P1/P2 是研究版的独立产品切片。P2 本地通过不自动代表 R5 的远程CI已成功；按本提交查 [实验分支Actions](https://github.com/MetaAviator/Vibe-Trading/actions/workflows/rix-journal.yml?query=branch%3Acodex%2Frix-journal-maintenance)。未来扩大为回测产品时，应先锁研究问题、股票池、交易日历、证券身份与PIT验收；不由适配器自动扩展。
+P1/P2/P3 是研究版的独立产品切片。本地通过不自动代表 R5 的远程CI已成功；按本提交查 [实验分支Actions](https://github.com/MetaAviator/Vibe-Trading/actions/workflows/rix-journal.yml?query=branch%3Acodex%2Frix-journal-maintenance)。未来扩大为回测产品时，应先锁研究问题、股票池、交易日历、证券身份与PIT验收；不由适配器自动扩展。
 
 优先级：先处理阻碍目标链路的正确性，再补来源合同和用户可解释性。每次只推进一个可验证的产品切片。每轮按实际改动复用有效验证；合并上游相关变化后才重跑受影响集合。
 

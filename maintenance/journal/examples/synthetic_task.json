@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "source_csv": "synthetic_stocks.csv",
+  "expected_sha256": "b84a796c8450ff3855db9d0c14a4b2dfefb93eef9504326dbe25e2afe0fe7e55",
+  "tickers": [
+    "AAA",
+    "BBB"
+  ],
+  "start": "2026-01-02",
+  "end": "2026-01-05",
+  "price_field": "closeadj",
+  "max_rows": 100000
+}
