@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="$policy">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>研究包只读查看器 · Journal Lab</title>
+<style>$css</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="eyebrow">JOURNAL LAB / LOCAL RESEARCH</p>
+  <div class="heading"><h1>研究输入，一包可查。</h1><span class="badge">离线 · 只读</span></div>
+  <p class="intro">从已校验的研究包查看价格、口径与观测范围。</p>
+</header>
+<section class="cards" aria-label="研究包概览">
+  <article><p class="label">包内观测</p><p class="value">$rows <small>行 / $tickers 个代码</small></p></article>
+  <article><p class="label">请求日期窗 · 含首尾</p><p class="date-window">$start → $end</p></article>
+  <article><p class="label">显式价格字段</p><p class="value">$field</p><p>$basis_label</p></article>
+</section>
+<section class="panel" aria-labelledby="price-heading">
+  <div class="toolbar"><h2 id="price-heading">价格记录</h2><div><label for="ticker">证券代码</label> <select id="ticker">$options</select></div></div>
+  <p class="muted">USD/share · 日频收盘价 · <code>$basis</code></p>
+  <p id="selection" class="selection" aria-live="polite"></p>
+  <svg id="chart" viewBox="0 0 880 290" role="img" aria-labelledby="chart-title chart-description">
+    <title id="chart-title">所选代码的观测价格</title>
+    <desc id="chart-description">横轴按实际日期间隔绘制；纵轴为近似价格坐标。原始数值见下方表格。</desc>
+    <g id="plot"></g>
+  </svg>
+  <p id="chart-note" class="muted" role="status"></p>
+  <p class="muted">图形为近似坐标，表格保留原始十进制文本。相邻观测连线不代表中间日期有记录。</p>
+  <div class="table-scroll"><table>
+    <caption>所选代码的原始价格记录</caption>
+    <thead><tr><th scope="col">日期</th><th scope="col">价格 · USD/share</th><th scope="col">修订日期 · lastupdated</th></tr></thead>
+    <tbody id="price-rows"></tbody>
+  </table></div>
+  <div class="pagination"><button id="previous" type="button">上一页</button><span id="page" aria-live="polite"></span><button id="next" type="button">下一页</button></div>
+  <noscript><p>请启用本地 JavaScript 查看价格图表与分页记录。下方口径和观测覆盖无需脚本即可阅读。</p></noscript>
+</section>
+<section class="panel" aria-labelledby="coverage-heading">
+  <h2 id="coverage-heading">观测覆盖</h2>
+  <p class="muted">实际首末日与行数。预期交易日历未验证，无法据此计算完整覆盖率或判定缺失交易日。</p>
+  <div class="table-scroll"><table>
+    <caption>各证券代码的实际观测范围</caption>
+    <thead><tr><th scope="col">代码</th><th scope="col">实际首日</th><th scope="col">实际末日</th><th scope="col">行数</th></tr></thead>
+    <tbody>$coverage</tbody>
+  </table></div>
+</section>
+<section class="panel" aria-labelledby="source-heading">
+  <h2 id="source-heading">来源与验证边界</h2>
+  <dl class="facts">
+    <dt>来源声明</dt><dd>Sharadar · stocks/SEP · USD/share · daily_EOD</dd>
+    <dt>价格口径</dt><dd><code>$field</code> / <code>$basis</code> · $basis_label</dd>
+    <dt>记录的提取时间</dt><dd>$extracted</dd>
+    <dt>提取时区状态</dt><dd>$timezone</dd>
+    <dt>包内检查</dt><dd>完整性与口径一致性通过；$external</dd>
+  </dl>
+  <div class="limits"><strong>未验证</strong><p>供应商真实性、逐价真值、PIT 可得性、永久证券身份与预期交易日历。</p><p>lastupdated 是修订日期；ZIP 技术时间戳不代表提取时间。校验和与外部 ID 不替代来源认证。此页不提供策略收益或账户成交结论。</p></div>
+  <details><summary>查看包与快照身份</summary><dl class="identities">$identities</dl></details>
+</section>
+<footer>本页包含包内价格内容，请按原始数据权限保存与分享。无需连接网络。</footer>
+</main>
+<script id="prices-data" type="application/json">$model</script>
+<script>$script</script>
+</body>
+</html>
