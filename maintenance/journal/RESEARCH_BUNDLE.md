@@ -65,3 +65,5 @@ verify只读取ZIP，不向文件系统解压。它检查固定成员集、无�
 `maintenance.journal.research_bundle_check.verify_bundle(bundle_path, expected_package_id=None)` 独立离线校验并返回相同摘要。两者使用原标准库和已有读取器，无新应用依赖。
 
 真实源文件、本地配置和生成包留在已忽略的private-journal/；研究证据留在research/。公开仓库与CI只使用上述合成示例。生成包保留数据内容，仍按原有私有数据边界处理。
+
+已有 ZIP 可交给[研究包只读查看器](RESEARCH_VIEWER.md)生成单个离线 HTML：先校验，再查看价格、复权口径与观测覆盖；无需重新读取源 CSV 或构建 ZIP。
