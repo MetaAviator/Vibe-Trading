@@ -19,7 +19,7 @@ import logging
 import threading
 import time as _time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional
 
 from src.agent.tuning import (
     TOKEN_THRESHOLD as TOKEN_THRESHOLD,
@@ -106,6 +106,9 @@ from src.agent.tool_lifecycle import (
     _format_timeout as _format_timeout,
 )
 
+if TYPE_CHECKING:
+    from src.session.market_followup import PriorMarketEvidence
+
 RUNS_DIR = get_runs_dir()
 SESSIONS_DIR = get_sessions_dir()
 
@@ -180,7 +183,7 @@ class AgentLoop(ToolCallLifecycle):
     def __init__(
         self,
         registry: ToolRegistry,
-        llm: ChatLLM,
+        llm: ChatLLM | None,
         memory: Optional[WorkspaceMemory] = None,
         event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         max_iterations: int = 50,
@@ -191,7 +194,7 @@ class AgentLoop(ToolCallLifecycle):
 
         Args:
             registry: Tool registry.
-            llm: ChatLLM client.
+            llm: ChatLLM client, or None for a deterministic saved-close reply.
             memory: Workspace memory (created fresh if not provided).
             event_callback: Event callback (event_type, data).
             max_iterations: Maximum number of loop iterations.
@@ -342,7 +345,10 @@ class AgentLoop(ToolCallLifecycle):
         except Exception as exc:  # noqa: BLE001
             logger.warning("run manifest not written (%s: %s)", type(exc).__name__, exc)
 
-    def run(self, user_message: str, history: Optional[List[Dict[str, Any]]] = None, session_id: str = "") -> Dict[str, Any]:
+    def run(
+        self, user_message: str, history: Optional[List[Dict[str, Any]]] = None, session_id: str = "",
+        *, prior_market_evidence: PriorMarketEvidence | None = None,
+    ) -> Dict[str, Any]:
         """Run the ReAct loop synchronously.
 
         Binds ``session_id`` as the active LLM session for the whole run so
@@ -353,23 +359,28 @@ class AgentLoop(ToolCallLifecycle):
             user_message: User message.
             history: Prior conversation messages.
             session_id: Session ID.
+            prior_market_evidence: Trusted dated close loaded from the parent attempt.
 
         Returns:
             Execution result dict.
         """
         token = bind_llm_session_id(session_id)
         try:
-            return self._run_bound(user_message, history, session_id)
+            return self._run_bound(user_message, history, session_id, prior_market_evidence)
         finally:
             reset_llm_session_id(token)
 
-    def _run_bound(self, user_message: str, history: Optional[List[Dict[str, Any]]] = None, session_id: str = "") -> Dict[str, Any]:
+    def _run_bound(
+        self, user_message: str, history: Optional[List[Dict[str, Any]]] = None, session_id: str = "",
+        prior_market_evidence: PriorMarketEvidence | None = None,
+    ) -> Dict[str, Any]:
         """Run the ReAct loop with the LLM session already bound.
 
         Args:
             user_message: User message.
             history: Prior conversation messages.
             session_id: Session ID.
+            prior_market_evidence: Trusted dated close loaded from the parent attempt.
 
         Returns:
             Execution result dict.
@@ -417,6 +428,12 @@ class AgentLoop(ToolCallLifecycle):
             self.memory.run_dir = str(run_dir)
 
         state_store.save_request(run_dir, user_message, {"session_id": session_id})
+        from src.session.market_followup import is_market_followup
+
+        if session_id and is_market_followup(user_message):
+            return self._release_market_followup(run_dir, user_message, session_id, prior_market_evidence)
+        if self.llm is None:
+            raise ValueError("A model client is required outside saved-close replay")
         self._grounding = GroundingLedger(
             run_dir=run_dir,
             user_message=user_message,
@@ -1182,6 +1199,71 @@ class AgentLoop(ToolCallLifecycle):
         self._run_done.set()
 
         return result
+
+    def _release_market_followup(
+        self,
+        run_dir: Path,
+        prompt: str,
+        session_id: str,
+        evidence: PriorMarketEvidence | None,
+    ) -> Dict[str, Any]:
+        """Release the exact stored close without asking the model to rephrase it."""
+        from src.session.market_followup import missing_market_followup_message
+
+        trace_dir = SESSIONS_DIR / session_id
+        try:
+            entries = TraceWriter.read(trace_dir)
+        except (OSError, UnicodeError):
+            entries = []
+        self._run_iteration = max(
+            (entry["iter"] for entry in entries
+             if isinstance(entry, dict) and type(entry.get("iter")) is int),
+            default=self._run_iteration,
+        ) + 1
+        iteration = self._run_iteration
+        trace = TraceWriter(trace_dir)
+        state = RunStateStore()
+        self._grounding = None
+        content = ""
+        try:
+            trace.write_text_entry(
+                {"type": "start", "iter": iteration}, field="prompt", value=prompt,
+                offload_kind=f"start-{iteration}",
+            )
+            trace.write_text_entry(
+                {"type": "message", "role": "user", "iter": iteration}, field="content", value=prompt,
+                offload_kind=f"user-message-{iteration}",
+            )
+            if self._cancel_event.is_set():
+                outcome = RunOutcome("cancelled", "cancelled by user", "cancelled", False)
+                state.mark_cancelled(run_dir, outcome.reason or "")
+            else:
+                if evidence is not None and evidence.matches_request(prompt, session_id):
+                    content = evidence.report(prompt)
+                    trace.write({
+                        "type": "prior_market_evidence", "iter": iteration,
+                        "source_attempt_id": evidence.attempt_id, "call_id": evidence.call_id,
+                        "symbol": evidence.symbol, "date": evidence.day,
+                    })
+                else:
+                    content = missing_market_followup_message(prompt)
+                    trace.write({"type": "prior_market_evidence_unavailable", "iter": iteration})
+                trace.write_text_entry(
+                    {"type": "answer", "iter": iteration}, field="content", value=content,
+                    offload_kind=f"answer-{iteration}",
+                )
+                trace.write_text_entry(
+                    {"type": "message", "role": "assistant", "iter": iteration}, field="content", value=content,
+                    offload_kind=f"assistant-message-{iteration}",
+                )
+                self._emit("text_delta", {"delta": content, "iter": iteration})
+                outcome = RunOutcome("success", None, "success", False)
+                state.mark_success(run_dir)
+            trace.write(build_end_event(outcome, iteration, 1))
+        finally:
+            trace.close()
+            self._run_done.set()
+        return build_result_dict(outcome, run_dir, [], 1, self.max_iterations, content, self._llm_runtime, None, 0)
 
     def _stall_watchdog(
         self,

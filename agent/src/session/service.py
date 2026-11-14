@@ -545,20 +545,20 @@ class SessionService:
         from src.tools import build_registry
         from src.providers.chat import ChatLLM
         from src.agent.loop import AgentLoop
+        from src.agent.tools import ToolRegistry
         from src.memory.persistent import PersistentMemory
         from src.config.loader import load_runtime_agent_config, sanitize_session_overrides
+        from src.session.market_followup import is_market_followup, load_prior_market_evidence
 
-        llm = ChatLLM()
-        pm = PersistentMemory()
+        market_followup = is_market_followup(attempt.prompt)
+        llm = None if market_followup else ChatLLM()
+        pm = None if market_followup else PersistentMemory()
 
         session_id = attempt.session_id
         attempt_id = attempt.attempt_id
         loop = asyncio.get_running_loop()
         tool_trail: list[Dict[str, Any]] = []
         checkpoint = ResponseCheckpoint(self.store, attempt)
-
-        safe_overrides = sanitize_session_overrides(session_config) if session_config else session_config
-        agent_config = load_runtime_agent_config(overrides=safe_overrides)
 
         def event_callback(event_type: str, data: Dict[str, Any]) -> None:
             """Forward AgentLoop events to the SSE event bus."""
@@ -586,18 +586,23 @@ class SessionService:
         # without a second cancellation channel that can drift out of sync.
         turn_cancel = threading.Event()
 
-        registry = await loop.run_in_executor(
-            _AGENT_EXECUTOR,
-            lambda: build_registry(
-                persistent_memory=pm,
-                include_shell_tools=include_shell_tools,
-                agent_config=agent_config,
-                session_id=session_id,
-                event_callback=event_callback,
-                warn_callback=_mcp_collision_warn,
-                cancel_event=turn_cancel,
-            ),
-        )
+        if market_followup:
+            registry = ToolRegistry()
+        else:
+            safe_overrides = sanitize_session_overrides(session_config) if session_config else session_config
+            agent_config = load_runtime_agent_config(overrides=safe_overrides)
+            registry = await loop.run_in_executor(
+                _AGENT_EXECUTOR,
+                lambda: build_registry(
+                    persistent_memory=pm,
+                    include_shell_tools=include_shell_tools,
+                    agent_config=agent_config,
+                    session_id=session_id,
+                    event_callback=event_callback,
+                    warn_callback=_mcp_collision_warn,
+                    cancel_event=turn_cancel,
+                ),
+            )
 
         from src.config.accessor import get_env_config
 
@@ -614,15 +619,14 @@ class SessionService:
         # Build the message history context.
         history = self._convert_messages_to_history(messages) if messages else None
 
+        def run_turn() -> dict[str, Any]:
+            kwargs = {"user_message": attempt.prompt, "history": history, "session_id": session_id}
+            if market_followup:
+                kwargs["prior_market_evidence"] = load_prior_market_evidence(self.store, attempt, messages or [])
+            return agent.run(**kwargs)
+
         try:
-            result = await loop.run_in_executor(
-                _AGENT_EXECUTOR,
-                lambda: agent.run(
-                    user_message=attempt.prompt,
-                    history=history,
-                    session_id=session_id,
-                ),
-            )
+            result = await loop.run_in_executor(_AGENT_EXECUTOR, run_turn)
         finally:
             self._active_loops.pop(session_id, None)
             try:
