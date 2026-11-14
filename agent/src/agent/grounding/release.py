@@ -253,6 +253,19 @@ class _ReleaseMixin:
                 "report it as not retrieved instead.",
             ]
         )
+        market_calls = sorted({
+            (record.symbol or "", record.tool, record.call_id)
+            for record in self._price_records()
+            if record.call_id
+        })
+        if market_calls:
+            lines.extend([
+                "Observed market calls (symbol | tool | exact call id):",
+                *(f"- {symbol} | {tool} | {call_id}" for symbol, tool, call_id in market_calls[:24]),
+                "For a plain returned price or volume, use the exact call id alone as ref. "
+                "A tool name is not a call id. Do not append an invented JSON field path "
+                "such as tool_name::SYMBOL[0].close; field refs must name actual evidence fields.",
+            ])
         if self._backtest_scopes:
             runs = ", ".join(f"`{scope}`" for scope in sorted(set(self._backtest_scopes.values())) if scope)
             lines.append(

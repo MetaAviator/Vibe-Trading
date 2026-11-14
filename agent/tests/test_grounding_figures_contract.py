@@ -895,10 +895,20 @@ def test_a_column_that_is_not_a_plain_sequence_is_still_checked(table: str, stil
         ("12m mean return", "12", "bare"),          # a horizon inside a label
         ("Mean beta (9 reported)", "9", "bare"),    # a count inside a label
         ("30 days", "30", "bare"),
+        ("5 行", "5", "bare"),
+        ("5行", "5", "bare"),
+        ("3 天", "3", "bare"),
+        ("2 次", "2", "bare"),
         ("12个月平均收益", "12", "bare"),
         ("45", "45", "measured"),                    # a number alone is the table's data
         ("25x", "25", "measured"),                   # a glued unit letter is not a word
         ("25 倍", "25", "measured"),
+        ("25万", "25", "measured"),
+        ("25千", "25", "measured"),
+        ("25亿", "25", "measured"),
+        ("25 元", "25", "measured"),
+        ("25 股", "25", "measured"),
+        ("25手", "25", "measured"),
         ("1.35 (est.)", "1.35", "measured"),         # a decimal is a measurement wherever it stands
         ("up 37% YoY", "37%", "measured"),
         ("$950 consensus", "950", "measured"),
@@ -910,8 +920,34 @@ def test_a_cell_is_read_as_prose_only_where_it_holds_words(cell: str, figure: st
     assert shapes[figure] == shape, shapes
 
 
-def test_words_in_a_price_column_cell_do_not_unbind_it() -> None:
+@pytest.mark.parametrize("cell", ["300 est", "300 行", "300次"])
+def test_words_in_a_price_column_cell_do_not_unbind_it(cell: str) -> None:
     """The header bound the column to a close; "300 est" under it is still a close."""
-    table = "| 代码 | 收盘 |\n|---|---|\n| 159516.SZ | 300 est |\n"
+    table = f"| 代码 | 收盘 |\n|---|---|\n| 159516.SZ | {cell} |\n"
     shapes = {f.text: f.shape for f in scan_figures(table, parse_figures_block(table))}
     assert shapes["300"] == "measured"
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "| 实际来源 | 表单 | 申报日 | 报告期末 |\n|---|---|---|---|\n"
+        "| sec_edgar | 10-K | 2026-11-03 | 2026-09-26 |",
+        "| 项目 | 值 |\n|---|---|\n| **表单** | `10-K/A` |",
+    ],
+)
+def test_sec_form_identifier_is_not_a_numeric_claim(tmp_path: Path, table: str) -> None:
+    ledger = GroundingLedger(run_dir=tmp_path, user_message="查询 AAPL.US 的 SEC 申报")
+    result = ledger.validate_final_answer("AAPL.US SEC 申报\n\n" + table)
+    assert result.valid, result.issues
+
+
+@pytest.mark.parametrize("cell", ["10-K", "10-K 123.45", "$10-K", "10-K%"])
+def test_filing_form_shape_does_not_exempt_other_table_figures(cell: str) -> None:
+    close_table = f"| 日期 | 收盘 |\n|---|---|\n| 2026-11-03 | {cell} |"
+    measured = {figure.text for figure in scan_figures(close_table, parse_figures_block(close_table))
+                if figure.shape == "measured"}
+    assert any(value.startswith("10") for value in measured)
+    if cell != "10-K":
+        filing_table = f"| 表单 | 申报日 |\n|---|---|\n| {cell} | 2026-11-03 |"
+        assert any(figure.shape == "measured" for figure in scan_figures(filing_table, parse_figures_block(filing_table)))

@@ -72,6 +72,7 @@ _ORDINAL_RE = re.compile(r"(?m)^[^\S\n]*(?:#{1,6}[^\S\n]*)?\d{1,3}[.)、][^\S\n]
 # A glued unit letter ("25x", "25 倍") is not a word (#1471).
 _INDEX_CELL_RE = re.compile(r"\d{1,3}[.)]?")
 _CELL_WORD_RE = re.compile(r"[^\W\d_]{2,}")
+_CJK_COUNT_CELL_RE = re.compile(r"[+-]?\d+\s*[行天次]\s*")
 
 # A compact year-horizon label ("1Y", "10y") in a table cell names a column or row, not
 # a measurement. Deliberately narrow: a one-letter "M" stays a magnitude suffix ("5M"),
@@ -237,6 +238,7 @@ class TableRow:
     symbol_column: int | None
     # Which table of the document the row belongs to, in document order.
     table: int = 0
+    form_column: int | None = None
 
 
 @dataclass(frozen=True)
@@ -296,6 +298,9 @@ _TABLE_FIELD_ALIASES = {
 _DATE_HEADERS = {"date", "datetime", "trade date", "timestamp", "日期", "交易日", "时间"}
 
 _SYMBOL_HEADERS = {"symbol", "ticker", "code", "标的", "代码", "证券代码"}
+
+_FORM_HEADERS = {"form", "sec form", "form type", "表单", "表单类型", "申报表单"}
+_SEC_FORM_RE = re.compile(r"(?:10-[KQ]|8-K)(?:/A)?", re.IGNORECASE | re.ASCII)
 
 
 def _lines_with_offsets(content: str) -> list[tuple[str, int]]:
@@ -815,7 +820,7 @@ def table_rows(content: str) -> list[TableRow]:
     """Return every Markdown table row with its header's column roles.
 
     A table is a maximal run of lines with at least two pipes; its first line is
-    the header, whose cells bind columns to OHLC fields, trade date and symbol.
+    the header, whose cells bind columns to OHLC fields, trade date, symbol and filing form.
     """
     positions = _lines_with_offsets(content)
     rows: list[TableRow] = []
@@ -841,6 +846,10 @@ def table_rows(content: str) -> list[TableRow]:
         )
         symbol_column = next(
             (position for position, name in enumerate(headers) if name in _SYMBOL_HEADERS),
+            None,
+        )
+        form_column = next(
+            (position for position, name in enumerate(headers) if name.strip("*`_ ") in _FORM_HEADERS),
             None,
         )
         # A square matrix may use an empty corner and its first column as
@@ -873,7 +882,7 @@ def table_rows(content: str) -> list[TableRow]:
             if not cells or _is_separator_row(cells):
                 continue
             rows.append(
-                TableRow(line_index, tuple(cells), columns, date_column, symbol_column, table)
+                TableRow(line_index, tuple(cells), columns, date_column, symbol_column, table, form_column)
             )
         table += 1
     return rows
@@ -1124,7 +1133,7 @@ def scan_figures(content: str, block: FiguresBlock) -> list[Figure]:
     """Locate and classify every number in the prose of a draft (spec §3).
 
     * ``exempt`` — a date, time, security-code digits, line-leading ordinal,
-      a table's row-number column or anything fenced; a bare year, compact date
+      a table's row-number column, a labeled SEC form code or anything fenced; a bare year, compact date
       or a table date/symbol cell only while it carries no decimal point,
       percent or currency mark (and a year not under a price column).
     * ``measured`` — a decimal point, percent / pp / bp, touching currency mark
@@ -1170,6 +1179,14 @@ def scan_figures(content: str, block: FiguresBlock) -> list[Figure]:
         for row in rows
         for position, (_, start, end) in enumerate(row.cells)
     ]
+    for start, end, row, position in cells:
+        form_value = position == row.form_column or (
+            position == 1
+            and len(row.cells) == 2
+            and row.cells[0][0].strip("*`_ ").casefold() in _FORM_HEADERS
+        )
+        if form_value and position not in row.columns and _SEC_FORM_RE.fullmatch(content[start:end].strip("*`_ ")):
+            hard.append((start, end))
     index_cells = _index_cells(rows)
 
     figures: list[Figure] = []
@@ -1189,11 +1206,14 @@ def scan_figures(content: str, block: FiguresBlock) -> list[Figure]:
         marked = percent or currency or "." in token.digits or token.grouped
         # A cell that also holds a word is prose set in a table: its plain
         # integer is a count or a horizon, as it would be in a sentence (#1471).
+        # Recognize a standalone Chinese row, day or occurrence count. Other
+        # single-character units still need numeric evidence.
         worded = (
             row is not None
             and position not in row.columns
             and (
                 _CELL_WORD_RE.search(row.cells[position][0]) is not None
+                or _CJK_COUNT_CELL_RE.fullmatch(row.cells[position][0].strip("*`_ ")) is not None
                 or _YEAR_HORIZON_CELL_RE.fullmatch(row.cells[position][0].strip()) is not None
             )
         )
