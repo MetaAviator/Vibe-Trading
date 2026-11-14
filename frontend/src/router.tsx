@@ -23,6 +23,7 @@ const Reports = lazy(() =>
   import("@/pages/Reports").then((m) => ({ default: m.Reports })),
 );
 const PaperTrading = lazy(() => import("@/pages/PaperTrading").then((m) => ({ default: m.PaperTrading })));
+const TradeReplay = lazy(() => import("@/pages/TradeReplay").then((m) => ({ default: m.TradeReplay })));
 const Portfolio = lazy(() =>
   import("@/pages/Portfolio").then((m) => ({ default: m.Portfolio })),
 );
@@ -67,6 +68,7 @@ export const router = createBrowserRouter([
       { path: "/scheduled", element: wrap(Scheduled) },
       { path: "/reports", element: wrap(Reports) },
       { path: "/paper-trading", element: wrap(PaperTrading) },
+      { path: "/paper-trading/replay", element: wrap(TradeReplay) },
       { path: "/portfolio", element: wrap(Portfolio) },
       { path: "/settings", element: wrap(Settings) },
       { path: "/runs/:runId", element: wrap(RunDetail) },

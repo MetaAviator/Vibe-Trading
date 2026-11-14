@@ -14,6 +14,45 @@ background scheduler. Failure leaves the ledger unchanged. Revision checks
 prevent concurrent requests from committing the same step. Ledger and history
 live in `<runtime_root>/paper-trading/accounts.db`.
 
+## Historical practice
+
+Open **Trade replay** from the Paper trading page or visit
+`/paper-trading/replay`. Choose a built-in synthetic case, go long or pass,
+then reveal one daily candle at a time. A queued entry or manual exit fills
+at the next open. The practice ledger shows cash, equity, shares, fills and
+stops. At the end, compare 10- and 20-session SMA exits using R, return,
+holding time, MAE and MFE. Passing keeps the ledger flat and labels the rule
+comparison as hypothetical.
+
+Replay state resets on case switch, restart or reload. The practice account
+starts with USD 10,000, risks up to USD 100 per entry and uses zero fees and
+slippage. A stop that gaps through fills at the opening price. The page lists
+these assumptions under **Data and fill rules**.
+
+### Import a local daily snapshot
+
+Use **Import OHLCV file** to select a UTF-8 JSON file. The browser reads and
+validates it locally. It keeps the latest valid import in the current page, and
+reload clears the import. Before revealing bars, the case displays the file's
+source, snapshot ID, adjustment basis and decision cutoff.
+
+Use these fields in the JSON object:
+
+| Field | Value |
+| --- | --- |
+| `symbol`, `source`, `snapshotId` | Nonempty strings identifying one instrument, the source and the fixed data snapshot. |
+| `adjustment` | `raw` (unadjusted), `split`, `split_dividend` or `split_dividend_additive`. The browser uses the supplied values as-is. |
+| `currency` | `USD`. |
+| `decisionDate` | `YYYY-MM-DD`, inclusive through the close of that session. It must match a daily bar. |
+| `stop` | Positive numeric stop price using the same adjustment basis as the candles. |
+| `bars` | Array of objects with `time` (`YYYY-MM-DD`) and numeric `open`, `high`, `low`, `close` and `volume`. Prices must be positive in USD cents and volume must be nonnegative. |
+
+Include at least 20 distinct daily bars through the decision date and at least
+one after it. The browser sorts by date, rejects duplicates and treats the next
+row as the next session. Trading calendar completeness depends on the snapshot.
+Keep the same snapshot and stop to reproduce the results. Position sizing and
+ledger arithmetic use USD cents.
+
 ## CLI
 
 Create `initial-state.json` with your simulated ledger:

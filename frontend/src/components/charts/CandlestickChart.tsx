@@ -32,14 +32,15 @@ interface Props {
   markers?: TradeMarker[];
   indicators?: Record<string, IndicatorPoint[]>;
   height?: number;
+  initialOverlays?: readonly Overlay[];
 }
 
-export function CandlestickChart({ data, markers, indicators, height = 500 }: Props) {
+export function CandlestickChart({ data, markers, indicators, height = 500, initialOverlays = ["ma5", "ma20"] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
   const [sub, setSub] = useState<Sub>("vol");
   const [range, setRange] = useState<Range>("ALL");
-  const [overlays, setOverlays] = useState<Set<Overlay>>(new Set(["ma5", "ma20"]));
+  const [overlays, setOverlays] = useState(() => new Set(initialOverlays));
   const [showMenu, setShowMenu] = useState(false);
   const dark = useThemeDark();
 

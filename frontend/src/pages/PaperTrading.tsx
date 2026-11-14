@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { FlaskConical, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, FlaskConical, Plus, Trash2 } from "lucide-react";
+import { Link } from "react-router";
+import { useReplayCopy } from "@/lib/trade-replay-copy";
 import {
   paperApi,
   type PaperAccount,
@@ -17,6 +19,7 @@ const panel = "rounded-2xl border border-border bg-card p-5 space-y-4";
 
 export function PaperTrading() {
   const { t } = useTranslation();
+  const replay = useReplayCopy();
   const [accounts, setAccounts] = useState<PaperAccount[]>([]);
   const [selected, setSelected] = useState("");
   const [label, setLabel] = useState("");
@@ -128,14 +131,19 @@ export function PaperTrading() {
     value.toLocaleString(undefined, { maximumFractionDigits: 4 });
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
-      <header className="space-y-2">
-        <div className="flex items-center gap-3">
-          <FlaskConical className="text-primary" />
-          <h1 className="text-2xl font-semibold">{t("paper.title")}</h1>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <FlaskConical className="text-primary" />
+            <h1 className="text-2xl font-semibold">{t("paper.title")}</h1>
+          </div>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            {t("paper.description")}
+          </p>
         </div>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          {t("paper.description")}
-        </p>
+        <Link to="/paper-trading/replay" className={`${button} inline-flex items-center gap-2`}>
+          {replay.title} <ArrowRight size={15} aria-hidden="true" />
+        </Link>
       </header>
       {error && (
         <div

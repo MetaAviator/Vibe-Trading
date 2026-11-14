@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { PaperTrading } from "../PaperTrading";
 import { paperApi } from "@/lib/api";
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { resolvedLanguage: "en" } }) }));
 vi.mock("@/lib/api", () => ({ paperApi: { list: vi.fn(), create: vi.fn(), advance: vi.fn(), history: vi.fn() } }));
 const account = { id: "paper-1", label: "Example", market: "us", currency: "USD", start_on: "2026-10-20", last_date: null, revision: 7, account_state: { cash: 1000, positions: [] }, last_result: null } as const;
 
@@ -14,7 +15,8 @@ beforeEach(() => {
 
 test("sends the loaded revision and shows an in-band failure without claiming a saved ledger", async () => {
   vi.mocked(paperApi.advance).mockResolvedValue({ account: { ...account }, committed: false, result: { code: "PAPER_DATA_NOT_READY", message: "Await daily data" } });
-  render(<PaperTrading />);
+  render(<PaperTrading />, { wrapper: MemoryRouter });
+  expect(screen.getByRole("link", { name: "Trade replay" })).toHaveAttribute("href", "/paper-trading/replay");
   await screen.findByRole("option", { name: "Example · USD" });
   fireEvent.change(screen.getByLabelText("paper.accounts"), { target: { value: "paper-1" } });
   fireEvent.change(await screen.findByLabelText("paper.date"), { target: { value: "2026-10-20" } });
@@ -27,7 +29,7 @@ test("sends the loaded revision and shows an in-band failure without claiming a 
 
 test("preserves configurable initial ledger and next-session selection", async () => {
   vi.mocked(paperApi.create).mockResolvedValue({ ...account });
-  render(<PaperTrading />);
+  render(<PaperTrading />, { wrapper: MemoryRouter });
   fireEvent.change(screen.getByLabelText("paper.label"), { target: { value: "My simulated account" } });
   fireEvent.change(screen.getByLabelText("paper.start"), { target: { value: "next_session" } });
   fireEvent.change(screen.getByLabelText(/paper.cash/), { target: { value: "2500" } });
