@@ -277,7 +277,27 @@ class TestUnsupportedProviders:
         from src.providers.capabilities import _PROVIDERS
 
         allowlisted = {name for name, caps in _PROVIDERS.items() if caps.top_level_reasoning_effort}
-        assert allowlisted == {"openai", "deepseek", "moonshot", "kimi"}
+        assert allowlisted == {"openai", "deepseek", "moonshot", "kimi", "ollama"}
+
+    @pytest.mark.parametrize(
+        ("model", "configured_effort", "expected_effort"),
+        [
+            ("qwen3.5:9b-vibe-16k", "none", "none"),
+            ("qwen3.5:9b-vibe-16k", "", None),
+            ("qwen2.5:32b", "none", None),
+        ],
+    )
+    def test_ollama_effort_is_opt_in_for_qwen35(self, model, configured_effort, expected_effort):
+        kwargs = _capture_kwargs(
+            {
+                "LANGCHAIN_PROVIDER": "ollama",
+                "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+                "LANGCHAIN_MODEL_NAME": model,
+                "LANGCHAIN_REASONING_EFFORT": configured_effort,
+            }
+        )
+
+        assert kwargs["reasoning_effort"] == expected_effort
 
     def test_explicit_openai_provider_keeps_effort_for_deepseek_model(self) -> None:
         kwargs = _capture_kwargs(

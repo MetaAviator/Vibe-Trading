@@ -1401,8 +1401,7 @@ def _supports_top_level_reasoning_effort(caps: ProviderCapabilities, model: str 
             provider name arrives as OpenAI — which is why callers must also
             check the base URL before trusting the OpenAI entry.
         model: Model name the request would carry, matched against
-            ``reasoning_effort_models`` when the provider sets one. Only the
-            Moonshot entry sets one today.
+            ``reasoning_effort_models`` when the provider sets one.
 
     Returns:
         True when the provider is on the allowlist, the model is covered by

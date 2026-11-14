@@ -272,7 +272,13 @@ _PROVIDERS: dict[str, ProviderCapabilities] = {
         "MODELSCOPE_API_KEY",
         "MODELSCOPE_BASE_URL",
     ),
-    "ollama": ProviderCapabilities("ollama", None, "OLLAMA_BASE_URL"),
+    # Ollama's Chat Completions API accepts reasoning_effort. Verified with
+    # Ollama 0.34.2 and Qwen 3.5 using "none" on a real post-tool request.
+    "ollama": ProviderCapabilities(
+        "ollama", None, "OLLAMA_BASE_URL",
+        top_level_reasoning_effort=True,
+        reasoning_effort_models=("qwen3.5:",),
+    ),
     "copilot": _COPILOT_CAPABILITIES,
     "github-copilot": _COPILOT_CAPABILITIES,
     "claude-cli": _CLAUDE_CLI_CAPABILITIES,
