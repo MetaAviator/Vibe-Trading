@@ -1,6 +1,7 @@
 """Deferred schemas retain discoverability, exact contracts, and execution gates."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -9,6 +10,7 @@ from src.agent.context_budget import ContextMeter
 from src.agent.loop import AgentLoop
 from src.agent.memory import WorkspaceMemory
 from src.agent.tool_loading import DeferredToolRegistry, prepare_registry, request_definitions
+from src.agent.trace import TraceWriter
 from src.agent.tools import BaseTool, ToolRegistry
 from src.providers.chat import LLMResponse, ToolCallRequest
 
@@ -146,3 +148,36 @@ def test_loops_do_not_share_schema_state_when_given_the_same_wrapper():
     assert len(request_definitions(first.registry)) == 2
     assert len(request_definitions(second.registry)) == 1
     assert len(request_definitions(shared)) == 1
+
+
+def test_deferred_tool_cannot_run_before_its_schema_is_offered(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("VIBE_TRADING_TOOL_LOADING", "lazy")
+    source = registry()
+    name = "read_observation_17"
+
+    def call(call_id, label):
+        return ToolCallRequest(id=call_id, name=name, arguments={"label": label})
+
+    responses = [
+        LLMResponse(tool_calls=[call("early", "before loading")]),
+        LLMResponse(tool_calls=[
+            ToolCallRequest(id="load", name="load_tools", arguments={"names": [name]}),
+            call("same-batch", "before schema response"),
+        ]),
+        LLMResponse(tool_calls=[call("read", "with schema")]),
+        LLMResponse(content="The observation is verified."),
+    ]
+    llm = SimpleNamespace(model_name="offline", stream_chat=Mock(side_effect=responses))
+    agent = AgentLoop(source, llm, max_iterations=5)
+    agent.memory.run_dir = str(tmp_path)
+
+    assert agent.run("Read the observation and summarize it.")["status"] == "success"
+    assert source.get(name).calls == ["with schema"]
+    results = {
+        entry["call_id"]: json.loads(entry["result"])
+        for entry in TraceWriter.read(tmp_path)
+        if entry.get("type") == "tool_result"
+    }
+    assert results["early"]["code"] == results["same-batch"]["code"] == "tool_schema_not_loaded"
+    assert results["load"]["loaded"] == [name]
+    assert results["read"]["observation"] == "with schema"

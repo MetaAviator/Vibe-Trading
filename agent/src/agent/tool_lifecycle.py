@@ -18,6 +18,7 @@ from src.agent.context import ContextBuilder
 from src.agent.context_compact import _replay_context_result, _result_data_gone
 from src.agent.progress import HeartbeatTimer, ProgressEvent, _set_emitter
 from src.agent.trace import TraceWriter
+from src.agent.tool_loading import DeferredToolRegistry
 from src.agent.tuning import _heartbeat_interval_s, _override, _tool_timeout_seconds
 from src.agent.tool_results import (
     _archive_backtest_result, _failure_code, _is_tool_success, _normalize_tool_run_dir,
@@ -87,6 +88,16 @@ class ToolCallLifecycle:
             return compact_requested, focus_topic
 
         for tc in tool_calls:
+            if isinstance(self.registry, DeferredToolRegistry) and self.registry.schema_is_deferred(tc.name):
+                execution_plan.append((tc, json.dumps({
+                    "status": "error",
+                    "code": "tool_schema_not_loaded",
+                    "message": (
+                        f"The schema for {tc.name} was not offered for this request. "
+                        f"Call load_tools with names=[{tc.name!r}], then use the schema in the next request."
+                    ),
+                })))
+                continue
             # Layer 4: compact tool — mark then defer execution
             if tc.name == "compact":
                 self._tool_progress.note("compact", "compact")

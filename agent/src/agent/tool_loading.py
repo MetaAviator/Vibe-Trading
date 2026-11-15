@@ -46,6 +46,11 @@ class DeferredToolRegistry(ToolRegistry):
         with self._lock:
             return [self._tools[name].to_openai_schema() for name in self._loaded]
 
+    def schema_is_deferred(self, name: str) -> bool:
+        """Whether a registered tool must be loaded before it can be called."""
+        with self._lock:
+            return name in self._tools and name not in self._loaded
+
     def catalog(self) -> str:
         """List every available name with a short discovery hint, never a top-k."""
         limit = loading_policy()["catalog_description_chars"]
