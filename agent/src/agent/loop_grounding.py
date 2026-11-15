@@ -62,9 +62,8 @@ def validate_and_release(
             else loop._grounding.validate_final_answer(final_content)
         )
         if not validation.valid:
-            # A draft whose only defect is a missing provenance
-            # word (source / currency / symbol suffix) gets the
-            # word appended, not another multi-minute model round.
+            # Repair supported presentation defects from existing evidence
+            # before requesting another model round.
             repaired = loop._grounding.repair_provenance(
                 final_content, validation
             )

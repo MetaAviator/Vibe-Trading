@@ -20,6 +20,7 @@ from src.agent.grounding.identity import (
 )
 from src.agent.grounding.evidence import EvidenceRecord, _EvidenceMixin, _json_object
 from src.agent.grounding.figures import Figure, FiguresBlock, parse_figures_block, scan_figures, strip_figures_block
+from src.agent.grounding.listing_checks import LISTING_SYMBOL
 from src.agent.grounding.policies import ValidationResult, _PolicyMixin
 from src.agent.grounding.registry import GROUNDING_CHECKS
 from src.agent.grounding.release import (
@@ -122,6 +123,7 @@ class GroundingLedger(
         )
         self._identities: dict[str, IdentityRecord] = {}
         self._evidence: list[EvidenceRecord] = []
+        self._profile_listings: dict[str, dict[str, str]] = {}
         self._tool_failures: list[dict[str, Any]] = []
         self._analysis_completed: list[dict[str, Any]] = []
         self._analysis_metrics: list[dict[str, Any]] = []
@@ -296,6 +298,8 @@ class GroundingLedger(
             success: Result-envelope success classification.
         """
         payload = _json_object(result)
+        if tool_name == "get_stock_profile":
+            self._note_profile_listing(arguments, payload if success else None, call_id)
         if not success:
             self._record_tool_failure(tool_name, call_id, result)
             if tool_name == _RESOLVER_TOOL:
@@ -356,8 +360,26 @@ class GroundingLedger(
             self._ingest_generic_numeric(tool_name, arguments, payload, call_id)
         self.persist()
 
+    def _note_profile_listing(
+        self, arguments: Mapping[str, Any], payload: dict[str, Any] | None, call_id: str,
+    ) -> None:
+        ticker = str(arguments.get("ticker") or "").strip().casefold()
+        # A second profile request with no usable result is still a different
+        # possible subject for a listing row in the answer.
+        listings = self._profile_listings.setdefault(ticker, {})
+        if not payload or payload.get("ok") is not True:
+            return
+        data = payload.get("data")
+        if not isinstance(data, dict) or not ticker or str(data.get("ticker") or "").casefold() != ticker:
+            return
+        listing = data.get("listing")
+        symbol = listing.get("symbol") if isinstance(listing, dict) else None
+        if isinstance(symbol, str) and re.fullmatch(LISTING_SYMBOL, symbol):
+            listings[symbol] = call_id
+            self._buffer_output = True
+
     def validate_final_answer(self, content: str) -> ValidationResult:
-        """Validate identity assertions and numeric price claims.
+        """Validate identity assertions, profile listings, and numeric claims.
 
         Args:
             content: Candidate assistant answer.

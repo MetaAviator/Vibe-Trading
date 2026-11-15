@@ -526,7 +526,7 @@ class _ReleaseMixin:
         content: str,
         validation: ValidationResult,
     ) -> str | None:
-        """Append a data note when the only defects are missing provenance words.
+        """Restore a known listing spelling or append a missing data note.
 
         Source and currency are known to the ledger, so naming them should not
         cost a model round. Any other issue returns None so the numeric checks
@@ -538,10 +538,19 @@ class _ReleaseMixin:
             validation: Its validation result.
 
         Returns:
-            The draft with a provenance note appended, or None when the issues
-            are not provenance-only or there is no price evidence to cite.
+            The repaired draft, or None if these issues require revision.
         """
         codes = {issue.get("code") for issue in validation.issues}
+        if codes == {"listing_symbol_mismatch"}:
+            for issue in reversed(validation.issues):
+                span = self._issue_span(content, issue)
+                if span is None or not issue.get("repairable"):
+                    return None
+                start, end = span
+                if content[start:end] != issue["claim"]:
+                    return None
+                content = content[:start] + issue["expected"] + content[end:]
+            return content
         if not codes or not codes <= _REPAIRABLE_PROVENANCE_CODES:
             return None
         note = self._provenance_note(content)

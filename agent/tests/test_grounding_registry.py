@@ -141,6 +141,7 @@ def test_declared_checks_cover_identity_and_figure_slices_in_order() -> None:
         "figure-symbol", "undeclared-figure", "figure-price-column",
         "figure-count", "figure-observed", "figure-derived", "figure-proposed", "figure-cited",
         "canonical-symbol-surfaced", "data-source-surfaced", "quote-currency-surfaced",
+        "profile-listing-symbol",
     ]
 
 
@@ -201,6 +202,63 @@ def test_fired_checks_name_the_identity_and_figure_slices(tmp_path: Path) -> Non
 # One positive/negative answer pair for every catalog entry. Numeric fixtures
 # use only the sparse two-bar ledger: dense frames can accidentally anchor bugs.
 
+PROFILE_REPORT = "# AAPL.US 公司资料\n\n| 项目 | 值 |\n|---|---|\n| 挂牌代码 | {symbol} |"
+
+
+def _observe_profile(ledger, ticker, listing, *, success=True):
+    ledger.ingest_tool_result(
+        tool_name="get_stock_profile",
+        arguments={"ticker": ticker},
+        result=json.dumps({
+            "ok": success, "source": "yahoo",
+            "data": {"ticker": ticker, "listing": {"symbol": listing}},
+        }),
+        call_id="profile",
+        success=success,
+    )
+
+
+def _profile_ledger(path):
+    ledger = GroundingLedger(run_dir=path, user_message="查询 AAPL.US 的公司资料")
+    _observe_profile(ledger, "AAPL.US", "AAPL")
+    return ledger
+
+
+def test_profile_listing_only_repairs_the_source_cell(tmp_path):
+    ledger = _profile_ledger(tmp_path)
+    answer = PROFILE_REPORT.format(symbol="`AAPL.US`") + "\n| 证券代码 | AAPL.US |"
+    answer += "\n\n```markdown\n| Field | Value |\n|---|---|\n| Listing symbol | AAPL.US |\n```"
+    verdict = ledger.validate_final_answer(answer)
+    assert len(verdict.issues) == 1
+    assert verdict.issues[0]["source_tool_call_ids"] == ["profile"]
+    assert ledger.should_buffer_output
+    repaired = ledger.repair_provenance(answer, verdict)
+    assert repaired == answer.replace("`AAPL.US`", "`AAPL`")
+    assert ledger.revalidate(repaired).valid
+
+    different_security = PROFILE_REPORT.format(symbol="MSFT")
+    verdict = ledger.validate_final_answer(different_security)
+    assert not verdict.valid
+    assert ledger.repair_provenance(different_security, verdict) is None
+
+
+@pytest.mark.parametrize(("ticker", "listing", "success"), [
+    ("MSFT.US", "MSFT", True),
+    ("MSFT.US", None, False),
+    ("AAPL.US", "APC", True),
+])
+def test_profile_listing_does_not_infer_an_ambiguous_source(tmp_path, ticker, listing, success):
+    ledger = _profile_ledger(tmp_path)
+    _observe_profile(ledger, ticker, listing, success=success)
+    assert ledger.validate_final_answer(PROFILE_REPORT.format(symbol="AAPL.US")).valid
+
+
+def test_profile_listing_without_source_value_is_not_inferred(tmp_path):
+    ledger = GroundingLedger(run_dir=tmp_path, user_message="查询 AAPL.US 的公司资料")
+    _observe_profile(ledger, "AAPL.US", None)
+    assert ledger.validate_final_answer(PROFILE_REPORT.format(symbol="AAPL.US")).valid
+
+
 PAIRS = {
     "listed-identity-relabelled-private": ("listed", "GLD is a listed fund.", "GLD is a private company."),
     "identity-not-locked": ("identity", "GLD is a listed fund.", "机器人ETF 可以买入。"),
@@ -223,6 +281,7 @@ PAIRS = {
     "canonical-symbol-surfaced": ("market", HDR, "akshare CNY close 0.666."),
     "data-source-surfaced": ("market", HDR, "159516.SZ CNY close 0.666."),
     "quote-currency-surfaced": ("market", HDR, "159516.SZ akshare close 0.666."),
+    "profile-listing-symbol": ("profile", PROFILE_REPORT.format(symbol="AAPL"), PROFILE_REPORT.format(symbol="AAPL.US")),
 }
 
 
@@ -242,6 +301,8 @@ def test_declared_check_fixture_pair(tmp_path, name):
             ledger = _ledger_with_locked_listed_identity(path)
         elif kind == "multi":
             ledger = _multi_ledger(path, MARKET_A, MARKET_C)
+        elif kind == "profile":
+            ledger = _profile_ledger(path)
         else:
             ledger = _ledger(path)
         verdict = ledger.validate_final_answer(answer)

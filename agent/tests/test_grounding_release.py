@@ -32,6 +32,7 @@ from src.agent.grounding.release import _REDACTION_MARKER_EN, _REDACTION_MARKER_
 from src.agent.loop import AgentLoop
 from src.agent.tools import BaseTool, ToolRegistry
 from src.agent.trace import TraceWriter
+from src.tools.stock_profile_tool import StockProfileTool
 from tests.message_roles_helpers import assert_system_messages_only_lead
 
 pytestmark = pytest.mark.unit
@@ -912,6 +913,37 @@ def test_goal_continuation_resets_correction_mode_but_not_a_forced_release(
         assert llm.calls == 5
         assert llm.tools_history[4] is not None
     assert_system_messages_only_lead(llm.messages_history)
+
+
+def test_loop_releases_only_the_corrected_listing_symbol(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tools.stock_profile_tool.get_quote_summary",
+        lambda ticker, modules: {"price": {"symbol": "AAPL", "currency": "USD"}},
+    )
+    registry = ToolRegistry()
+    registry.register(StockProfileTool())
+    draft = "# AAPL.US 公司资料\n\n| 项目 | 值 |\n|---|---|\n| 挂牌代码 | AAPL.US |"
+    llm = _ScriptedLLM([
+        _Response(tool_calls=[_tool_call("profile", "get_stock_profile", ticker="AAPL.US", sections=["financials"])]),
+        _Response(content=draft),
+    ])
+    events = []
+    agent = AgentLoop(
+        registry=registry, llm=llm, max_iterations=4,
+        event_callback=lambda event, data: events.append((event, data)),
+    )
+    agent.memory.run_dir = str(tmp_path)
+
+    result = agent.run("查询 AAPL.US 的公司资料")
+
+    assert result["status"] == "success"
+    assert llm.calls == 2
+    expected = draft.replace("| AAPL.US |", "| AAPL |")
+    assert result["content"] == expected
+    assert "".join(data["delta"] for event, data in events if event == "text_delta") == expected
+    repairs = [entry for entry in TraceWriter.read(tmp_path) if entry["type"] == "answer_repaired"]
+    assert len(repairs) == 1
+    assert repairs[0]["issues"][0]["source_tool_call_ids"] == ["profile"]
 
 
 def test_loop_repairs_a_missing_source_word_without_another_model_round(tmp_path: Path) -> None:
