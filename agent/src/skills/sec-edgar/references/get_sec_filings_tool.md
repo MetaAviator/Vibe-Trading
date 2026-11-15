@@ -13,7 +13,8 @@ Markets: United States only.
 | `ticker` | string | yes | — | U.S. equity ticker, case-insensitive (`AAPL`, `msft`). Resolved to a CIK via the SEC company-tickers table. |
 | `form` | string | no | all forms | SEC form type filter, case-insensitive (`10-K`, `10-Q`, `8-K`). Omit to return every recent form. |
 | `metric` | string | no | — | XBRL `us-gaap` concept name (`Revenues`, `NetIncomeLoss`, `Assets`). When set, the response also carries that concept's reported series. Case-sensitive. |
-| `limit` | integer | no | `20` | Max number of most-recent filings and metric points to return. Clamped to `1..40`. |
+| `offset` | integer | no | `0` | Index of the first matching filing to return. Use `paging.next_offset` for the next page. |
+| `limit` | integer | no | `20` | Max filings on this page and max most-recent metric points. Clamped to `1..40`. |
 
 ## Success envelope
 
@@ -57,7 +58,7 @@ Markets: United States only.
 ```
 
 - `source` is the literal `"sec_edgar"` — it tags the data origin in the envelope; it is **not** a backtest `source` value (EDGAR is not a bar loader).
-- `filings` is newest-first (as the SEC returns it), filtered to `form` when given, capped at 40.
+- `filings` is newest-first (as the SEC returns it), filtered to `form` when given. The `paging` block reports the total available, offset, returned count and next offset. The response size budget may shorten the page.
 - `metric` is present only when the `metric` parameter is supplied. The tool picks the unit bucket with the most rows; `points` is the most-recent `limit` entries. `unit` / `points` are empty when the concept is absent or carries no data.
 - `document_url` is `null` when the SEC row lacks an accession number or primary-document filename.
 

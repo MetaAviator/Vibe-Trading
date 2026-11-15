@@ -96,6 +96,22 @@ def test_form_filter_keeps_only_matching_forms():
     assert filings[0]["form"] == "10-Q"
 
 
+def test_limit_bounds_filing_page_without_losing_the_next_offset():
+    tool = SecFilingsTool()
+    with patch.object(sft, "cik_for", return_value="0000320193"), patch.object(
+        sft, "get_submissions", return_value=_SUBMISSIONS
+    ):
+        first = json.loads(tool.execute(ticker="AAPL", limit=1))
+        second = json.loads(tool.execute(ticker="AAPL", limit=1, offset=first["paging"]["next_offset"]))
+
+    assert [row["form"] for row in first["data"]["filings"]] == ["10-K"]
+    assert first["paging"] == {
+        "total": 3, "offset": 0, "returned": 1, "next_offset": 1, "complete": False,
+    }
+    assert [row["form"] for row in second["data"]["filings"]] == ["8-K"]
+    assert second["paging"]["next_offset"] == 2
+
+
 def test_metric_series_picks_richest_unit_and_caps_limit():
     with patch.object(sft, "cik_for", return_value="0000320193"), patch.object(
         sft, "get_submissions", return_value=_SUBMISSIONS
