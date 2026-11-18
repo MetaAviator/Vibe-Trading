@@ -150,10 +150,43 @@ def test_loops_do_not_share_schema_state_when_given_the_same_wrapper():
     assert len(request_definitions(shared)) == 1
 
 
-def test_deferred_tool_cannot_run_before_its_schema_is_offered(tmp_path: Path, monkeypatch):
+def test_premature_readonly_call_loads_schema_only_for_the_next_request(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_TRADING_TOOL_LOADING", "lazy")
     source = registry()
     name = "read_observation_17"
+    tool = source.get(name)
+    responses = [
+        LLMResponse(tool_calls=[
+            ToolCallRequest(id="early", name=name, arguments={"wrong_argument": "ignored"}),
+            ToolCallRequest(id="same-batch", name=name, arguments={"label": "still blocked"}),
+        ]),
+        LLMResponse(tool_calls=[ToolCallRequest(id="read", name=name, arguments={"label": "verified"})]),
+        LLMResponse(content="The observation is verified."),
+    ]
+    llm = SimpleNamespace(model_name="offline", stream_chat=Mock(side_effect=responses))
+    agent = AgentLoop(source, llm, max_iterations=5)
+    agent.memory.run_dir = str(tmp_path)
+
+    assert agent.run("Read the observation and summarize it.")["status"] == "success"
+    assert tool.calls == ["verified"]
+    first, second, _ = llm.stream_chat.call_args_list
+    assert [t["function"]["name"] for t in first.kwargs["tools"]] == ["load_tools"]
+    assert second.kwargs["tools"] == [*first.kwargs["tools"], tool.to_openai_schema()]
+    blocked = [
+        json.loads(row["result"])
+        for row in TraceWriter.read(tmp_path)
+        if row.get("type") == "tool_result" and row.get("call_id") in {"early", "same-batch"}
+    ]
+    assert len(blocked) == 2
+    assert all(row["code"] == "tool_schema_not_loaded" for row in blocked)
+    assert all(row["loaded"] == [name] for row in blocked)
+
+
+def test_deferred_write_still_requires_explicit_loading(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("VIBE_TRADING_TOOL_LOADING", "lazy")
+    source = registry()
+    name = "read_observation_17"
+    source.get(name).is_readonly = False
 
     def call(call_id, label):
         return ToolCallRequest(id=call_id, name=name, arguments={"label": label})
@@ -173,11 +206,16 @@ def test_deferred_tool_cannot_run_before_its_schema_is_offered(tmp_path: Path, m
 
     assert agent.run("Read the observation and summarize it.")["status"] == "success"
     assert source.get(name).calls == ["with schema"]
+    first, second, third, _ = llm.stream_chat.call_args_list
+    assert [t["function"]["name"] for t in first.kwargs["tools"]] == ["load_tools"]
+    assert first.kwargs["tools"] == second.kwargs["tools"]
+    assert source.get(name).to_openai_schema() in third.kwargs["tools"]
     results = {
         entry["call_id"]: json.loads(entry["result"])
         for entry in TraceWriter.read(tmp_path)
         if entry.get("type") == "tool_result"
     }
     assert results["early"]["code"] == results["same-batch"]["code"] == "tool_schema_not_loaded"
+    assert "loaded" not in results["early"] and "loaded" not in results["same-batch"]
     assert results["load"]["loaded"] == [name]
     assert results["read"]["observation"] == "with schema"

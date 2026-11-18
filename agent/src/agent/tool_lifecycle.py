@@ -72,6 +72,8 @@ class ToolCallLifecycle:
         compact_requested = False
         focus_topic = ""
         execution_plan: list[tuple[Any, str | None]] = []
+        deferred = self.registry if isinstance(self.registry, DeferredToolRegistry) else None
+        schemas_to_expose: list[str] = []
         batch_authorized_symbols = (
             set(self._grounding.authorized_symbols)
             if self._grounding is not None
@@ -88,15 +90,22 @@ class ToolCallLifecycle:
             return compact_requested, focus_topic
 
         for tc in tool_calls:
-            if isinstance(self.registry, DeferredToolRegistry) and self.registry.schema_is_deferred(tc.name):
-                execution_plan.append((tc, json.dumps({
-                    "status": "error",
-                    "code": "tool_schema_not_loaded",
-                    "message": (
+            if deferred is not None and deferred.schema_is_deferred(tc.name):
+                blocked: dict[str, Any] = {"status": "error", "code": "tool_schema_not_loaded"}
+                tool_def = deferred.get(tc.name)
+                if tool_def is not None and tool_def.is_readonly:
+                    schemas_to_expose.append(tc.name)
+                    blocked["loaded"] = [tc.name]
+                    blocked["message"] = (
+                        f"Full schema for {tc.name} is now loaded and included in the current tools. "
+                        f"The previous call was blocked. Call {tc.name} using its supplied argument schema."
+                    )
+                else:
+                    blocked["message"] = (
                         f"The schema for {tc.name} was not offered for this request. "
                         f"Call load_tools with names=[{tc.name!r}], then use the schema in the next request."
-                    ),
-                })))
+                    )
+                execution_plan.append((tc, json.dumps(blocked)))
                 continue
             # Layer 4: compact tool — mark then defer execution
             if tc.name == "compact":
@@ -341,6 +350,11 @@ class ToolCallLifecycle:
                 iteration,
             )
         flush_authorized_segment()
+
+        # Expose read-only schemas after the batch so no call in this response
+        # can execute against a schema the provider has yet to see.
+        if deferred is not None and schemas_to_expose:
+            deferred.expose(schemas_to_expose)
 
         return compact_requested, focus_topic
 
