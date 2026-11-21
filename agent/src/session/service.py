@@ -409,7 +409,14 @@ class SessionService:
                 "attempt.started",
                 {"attempt_id": attempt.attempt_id, "started_at": wall_started_at},
             )
-            messages = self.store.get_messages(session.session_id)
+            from src.session.market_followup import is_market_followup_by_call_id
+
+            if is_market_followup_by_call_id(attempt.prompt):
+                messages = await asyncio.get_running_loop().run_in_executor(
+                    _AGENT_EXECUTOR, lambda: self.store.get_messages(session.session_id, limit=None),
+                )
+            else:
+                messages = self.store.get_messages(session.session_id)
             result = await self._run_with_agent(
                 attempt,
                 messages=messages,
@@ -617,7 +624,7 @@ class SessionService:
         self._active_loops[session_id] = agent
 
         # Build the message history context.
-        history = self._convert_messages_to_history(messages) if messages else None
+        history = self._convert_messages_to_history(messages) if messages and not market_followup else None
 
         def run_turn() -> dict[str, Any]:
             kwargs = {"user_message": attempt.prompt, "history": history, "session_id": session_id}

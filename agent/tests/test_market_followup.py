@@ -1,4 +1,4 @@
-"""Reuse of dated market evidence from the immediately preceding attempt."""
+"""Reuse of dated market evidence from a verified earlier attempt."""
 
 from __future__ import annotations
 
@@ -254,21 +254,29 @@ def test_followup_rejects_an_evidence_object_for_another_request(tmp_path: Path,
 
 
 @pytest.mark.parametrize("has_evidence", [True, False])
-@pytest.mark.parametrize("explicit_call", [False, True])
-def test_session_followup_releases_only_stored_close_without_llm_or_tools(tmp_path: Path, monkeypatch, has_evidence, explicit_call) -> None:
+@pytest.mark.parametrize("explicit_call, intervening_turns", [(False, 0), (True, 1), (True, 50)])
+def test_session_followup_releases_only_stored_close_without_llm_or_tools(
+    tmp_path: Path, monkeypatch, has_evidence: bool, explicit_call: bool, intervening_turns: int,
+) -> None:
     store, attempt, messages = _saved_turn(tmp_path, result=PAYLOAD if has_evidence else None)
     service: SessionService = _service(tmp_path, monkeypatch)
     session = store.get_session(attempt.session_id)
     assert session is not None
     session.last_attempt_id = attempt.parent_attempt_id
-    if explicit_call:
-        middle = Attempt(session_id=session.session_id, parent_attempt_id=session.last_attempt_id)
+    store.append_message(messages[0])
+    for _ in range(intervening_turns):
+        middle = Attempt(session_id=session.session_id, parent_attempt_id=session.last_attempt_id, prompt="插入一轮对话")
         middle.mark_running()
         middle.mark_completed()
         store.create_attempt(middle)
         session.last_attempt_id = middle.attempt_id
+        store.append_message(Message(session_id=session.session_id, role="user", content=middle.prompt))
+        store.append_message(Message(
+            session_id=session.session_id, role="assistant", content="收到。", linked_attempt_id=middle.attempt_id,
+        ))
     store.update_session(session)
-    store.append_message(messages[0])
+    if intervening_turns == 50:
+        assert messages[0] not in store.get_messages(session.session_id)
     monkeypatch.setattr("src.agent.loop.SESSIONS_DIR", store.base_dir)
     monkeypatch.setattr(
         "src.providers.chat.ChatLLM",

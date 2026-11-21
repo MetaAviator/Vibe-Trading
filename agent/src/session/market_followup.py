@@ -40,6 +40,11 @@ def is_market_followup(prompt: str) -> bool:
     return bool(_REUSE.match(prompt) or _REUSE_CALL.match(prompt))
 
 
+def is_market_followup_by_call_id(prompt: str) -> bool:
+    """Identify requests that can reference evidence beyond the recent messages."""
+    return _REUSE_CALL.match(prompt.strip()) is not None
+
+
 @dataclass(frozen=True)
 class PriorMarketEvidence:
     session_id: str
