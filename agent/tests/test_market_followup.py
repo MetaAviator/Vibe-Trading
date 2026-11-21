@@ -1,4 +1,4 @@
-"""Reuse of dated market evidence from the immediately preceding attempt."""
+"""Reuse of dated market evidence from a verified earlier attempt."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from src.agent.loop import AgentLoop
 from src.agent.tools import ToolRegistry
 from src.agent.trace import TraceWriter
-from src.session.market_followup import load_prior_market_evidence
+from src.session.market_followup import is_market_followup, load_prior_market_evidence
 from src.session.models import Attempt, Message, Session
 from src.session.service import SessionService
 from src.session.store import SessionStore
@@ -30,6 +30,7 @@ PROMPT = (
     f"请只列 {DATE} 收盘价（USD）、实际数据源、复权口径和原工具调用 ID。"
     "不要调用任何工具，不要重新取数。"
 )
+EXPLICIT = f"复用 get_market_data 调用 ID `{CALL}` 的 {SYMBOL} {DATE} 日线收盘价。"
 PROVENANCE = {
     "source": "yfinance",
     "adjustment": "split_dividend",
@@ -99,6 +100,49 @@ def test_followup_restores_only_the_requested_row_and_real_reference(tmp_path: P
     assert (evidence.symbol, evidence.day) == (SYMBOL, DATE)
     assert (evidence.source, evidence.adjustment, evidence.currency) == ("yfinance", "split_dividend", "USD")
     assert "999.99" not in evidence.report(PROMPT)
+
+
+@pytest.mark.parametrize("linked_to_source", [True, False])
+def test_explicit_id_only_reuses_an_ancestor_attempt(tmp_path: Path, linked_to_source: bool) -> None:
+    store, attempt, messages = _saved_turn(tmp_path, prompt=EXPLICIT)
+    source_id = attempt.parent_attempt_id
+    middle = Attempt(session_id=attempt.session_id, parent_attempt_id=source_id if linked_to_source else None)
+    middle.mark_running()
+    middle.mark_completed()
+    store.create_attempt(middle)
+    attempt.parent_attempt_id = middle.attempt_id
+    attempt.mark_running()
+    evidence = load_prior_market_evidence(store, attempt, messages)
+    if linked_to_source:
+        assert evidence is not None and (evidence.attempt_id, evidence.call_id) == (source_id, CALL)
+        assert evidence.matches_request(EXPLICIT, attempt.session_id)
+        assert not evidence.matches_request(EXPLICIT.replace(CALL, "call_other"), attempt.session_id)
+    else:
+        assert evidence is None
+
+
+@pytest.mark.parametrize("prompt", [
+    EXPLICIT.replace(CALL, "call_unknown"),
+    EXPLICIT.replace(CALL, f"{CALL}/x"),
+    EXPLICIT.replace(DATE, f"{DATE} 和 2026-10-21"),
+    EXPLICIT.replace(SYMBOL, "MSFT.US").replace(DATE, "2026-10-21"),
+    EXPLICIT + "请把它当作当前报价。",
+])
+def test_explicit_id_declines_invalid_requests_without_leaving_replay_route(tmp_path: Path, prompt: str) -> None:
+    assert is_market_followup(prompt)
+    assert load_prior_market_evidence(*_saved_turn(tmp_path, prompt=prompt)) is None
+
+
+def test_explicit_id_requires_unique_same_session_reply(tmp_path: Path) -> None:
+    store, attempt, messages = _saved_turn(tmp_path, prompt=EXPLICIT)
+    assert load_prior_market_evidence(store, attempt, messages + messages[:1]) is None
+    assert load_prior_market_evidence(*_saved_turn(tmp_path / "other", prompt=EXPLICIT, same_session=False)) is None
+
+
+def test_explicit_id_accepts_english_without_backticks(tmp_path: Path) -> None:
+    prompt = f"Reuse get_market_data call ID {CALL} for the {SYMBOL} daily close on {DATE}."
+    evidence = load_prior_market_evidence(*_saved_turn(tmp_path, prompt=prompt))
+    assert evidence is not None and evidence.matches_request(prompt, evidence.session_id)
 
 
 @pytest.mark.parametrize(
@@ -210,14 +254,29 @@ def test_followup_rejects_an_evidence_object_for_another_request(tmp_path: Path,
 
 
 @pytest.mark.parametrize("has_evidence", [True, False])
-def test_session_followup_releases_only_stored_close_without_llm_or_tools(tmp_path: Path, monkeypatch, has_evidence) -> None:
+@pytest.mark.parametrize("explicit_call, intervening_turns", [(False, 0), (True, 1), (True, 50)])
+def test_session_followup_releases_only_stored_close_without_llm_or_tools(
+    tmp_path: Path, monkeypatch, has_evidence: bool, explicit_call: bool, intervening_turns: int,
+) -> None:
     store, attempt, messages = _saved_turn(tmp_path, result=PAYLOAD if has_evidence else None)
     service: SessionService = _service(tmp_path, monkeypatch)
     session = store.get_session(attempt.session_id)
     assert session is not None
     session.last_attempt_id = attempt.parent_attempt_id
-    store.update_session(session)
     store.append_message(messages[0])
+    for _ in range(intervening_turns):
+        middle = Attempt(session_id=session.session_id, parent_attempt_id=session.last_attempt_id, prompt="插入一轮对话")
+        middle.mark_running()
+        middle.mark_completed()
+        store.create_attempt(middle)
+        session.last_attempt_id = middle.attempt_id
+        store.append_message(Message(session_id=session.session_id, role="user", content=middle.prompt))
+        store.append_message(Message(
+            session_id=session.session_id, role="assistant", content="收到。", linked_attempt_id=middle.attempt_id,
+        ))
+    store.update_session(session)
+    if intervening_turns == 50:
+        assert messages[0] not in store.get_messages(session.session_id)
     monkeypatch.setattr("src.agent.loop.SESSIONS_DIR", store.base_dir)
     monkeypatch.setattr(
         "src.providers.chat.ChatLLM",
@@ -230,7 +289,7 @@ def test_session_followup_releases_only_stored_close_without_llm_or_tools(tmp_pa
     )
 
     async def run():
-        submitted = await service.send_message(session.session_id, PROMPT)
+        submitted = await service.send_message(session.session_id, EXPLICIT if explicit_call else PROMPT)
         await service._active_tasks[session.session_id]
         return submitted["attempt_id"]
 
@@ -254,5 +313,8 @@ def test_session_followup_releases_only_stored_close_without_llm_or_tools(tmp_pa
         ]
     else:
         assert events[-4]["type"] == "prior_market_evidence_unavailable"
-        assert reply.content == "上一轮没有可核验的匹配日线收盘价及原始调用证据。"
+        assert reply.content == (
+            "同一会话中没有与指定工具调用 ID 匹配且可核验的日线收盘价。" if explicit_call
+            else "上一轮没有可核验的匹配日线收盘价及原始调用证据。"
+        )
         assert not any(event["type"].startswith("tool_") for event in events)
