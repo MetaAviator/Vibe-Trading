@@ -1,3 +1,5 @@
+> **Rix 实验维护分支** · [用 Python 3.12 核对一份复盘报告](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告)。无需安装 Vibe-Trading，先用样例的未复权价格和费用复算 4.00 USD 净盈亏。
+
 <p align="center">
   <a href="README.md">English</a> | <b>中文</b> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>
 </p>

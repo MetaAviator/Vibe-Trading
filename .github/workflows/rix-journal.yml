@@ -68,8 +68,6 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Install the hash-locked offline verification environment
-        run: python -m pip install --require-hashes -r maintenance/journal/requirements.lock
       - name: Download the evidence from Linux
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -80,5 +78,10 @@ jobs:
           EXPECTED_PACKAGE_ID: ${{ needs.journal.outputs.replay-package-id }}
         run: |
           mv maintenance/journal/examples/synthetic_stocks.csv "$RUNNER_TEMP/source-stocks.csv"
-          python -m maintenance.journal.examples.synthetic_replay \
+          python -S -m maintenance.journal.examples.synthetic_replay \
             verify "$RUNNER_TEMP/replay" --expected-id "$EXPECTED_PACKAGE_ID"
+      - name: Check the checkout's starter evidence with the standard library
+        run: |
+          python -S -m maintenance.journal.examples.synthetic_replay \
+            verify maintenance/journal/examples/starter_evidence \
+            --expected-id "$(cat maintenance/journal/examples/starter-package-id.txt)"

@@ -2,6 +2,24 @@
 
 用合成证券 AAA 的两笔模拟成交，核对报告中的 4.00 USD 净盈亏。两笔成交价分别取自样例的未复权收盘价。成交时间、数量和费用都是样例设定。
 
+## 先核对一份报告
+
+下载本分支的源码 ZIP 并解压，或检出本分支。有 Python 3.12 就能在仓库根目录复算。样例随源码提供，无需安装 Vibe-Trading 或 pip 依赖，也无需账户、模型、行情订阅或原始行情 CSV。
+
+```sh
+python3.12 -S -m maintenance.journal.examples.synthetic_replay verify \
+  maintenance/journal/examples/starter_evidence \
+  --expected-id "$(cat maintenance/journal/examples/starter-package-id.txt)"
+```
+
+Windows PowerShell 可运行同一入口。
+
+```powershell
+py -3.12 -S -m maintenance.journal.examples.synthetic_replay verify maintenance/journal/examples/starter_evidence --expected-id (Get-Content maintenance/journal/examples/starter-package-id.txt)
+```
+
+看到 `"net_pnl_usd": "4.00"` 就完成了第一次复算。三个文件同时保留成交、费用和来源价格，适合先核对报告中的数字，再安装环境生成自己的研究与复盘证据。
+
 ## 生成证据
 
 在仓库根目录用 Python 3.12 运行。安装依赖后，样例禁用网络 socket，无需模型、行情账号或券商连接。
@@ -18,16 +36,16 @@ PYTHONPATH=agent .venv-journal/bin/python -m maintenance.journal.examples.synthe
 
 ## 导出后独立复算
 
-将 `research.zip`、`fills.csv` 和 `journal.json` 拷贝到另一目录或机器。使用同一提交和上面的 Python 依赖，指定生成时另行记录的包 ID。复算只需要这三个导出文件和仓库中的同版样例工具。
+将 `research.zip`、`fills.csv` 和 `journal.json` 拷贝到另一目录或机器。下载同一提交的源码，用 Python 3.12 指定生成时另行记录的包 ID。
 
 ```sh
-.venv-journal/bin/python -m maintenance.journal.examples.synthetic_replay \
+python3.12 -S -m maintenance.journal.examples.synthetic_replay \
   verify /path/to/copied-evidence --expected-id '<生成时记录的 package_id>'
 ```
 
 核验器将成交价格与包内对应证券和日期的未复权价格逐项匹配，再用 Decimal 从成交量、价格和各行费用独立计算净盈亏。预期是一组平仓、0.50 USD 费用和 4.00 USD 净盈亏。
 
-维护分支的离线 CI 在 Linux 构建样例，仅传递这三个文件给 macOS 复算。复算前移走检出中的原始行情 CSV，包 ID 由构建任务单独传入。
+维护分支的离线 CI 在 Linux 构建样例，仅传递这三个文件给 macOS。macOS 移走源 CSV 后，用 Python 标准库复算新导出和随源码附上的样例。
 
 | 证据 | 核对内容 |
 | --- | --- |

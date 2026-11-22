@@ -1,4 +1,4 @@
-> **Rix experimental maintenance branch:** start with the [offline synthetic replay](maintenance/journal/SYNTHETIC_REPLAY.md) to check the same simulated fills against source prices and independently recompute net P&L. The [Journal Lab](maintenance/journal/README.md) documents the supported scope, data contracts, roadmap, research input bundles and offline viewer.
+> **Rix experimental maintenance branch:** [Check a sample trade report with Python 3.12](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告). Reconcile prices and fees to an independent $4.00 net P&L before installing Vibe-Trading. The [Journal Lab](maintenance/journal/README.md) covers building and sharing your own evidence.
 
 <p align="center">
   <b>English</b> | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>

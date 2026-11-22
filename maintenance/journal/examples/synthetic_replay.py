@@ -15,9 +15,7 @@ import sys
 from unittest.mock import patch
 from zipfile import ZipFile
 
-from maintenance.journal.research_bundle import build_bundle
 from maintenance.journal.research_bundle_check import verify_bundle
-from maintenance.journal.research_viewer import render_viewer
 
 EXAMPLES = Path(__file__).resolve().parent
 FIXTURE = EXAMPLES / "synthetic_replay_fills.csv"
@@ -31,8 +29,8 @@ def verify(directory: Path, expected_id: str) -> dict:
         raise ValueError("research ZIP changed after verification")
     with ZipFile(io.BytesIO(archive)) as zipped:
         price_rows = list(csv.DictReader(io.StringIO(zipped.read("prices.csv").decode("utf-8"))))
-    fills = (directory / "fills.csv").read_bytes()
-    if fills != FIXTURE.read_bytes():
+    fills = (directory / "fills.csv").read_bytes().replace(b"\r\n", b"\n")
+    if fills != FIXTURE.read_bytes().replace(b"\r\n", b"\n"):
         raise ValueError("fills do not match the published synthetic fixture")
     fill_rows = list(csv.DictReader(io.StringIO(fills.decode("utf-8"))))
     observed = {(row["ticker"], row["date"]): Decimal(row["close"]) for row in price_rows}
@@ -79,6 +77,8 @@ def verify(directory: Path, expected_id: str) -> dict:
 
 
 def build(directory: Path) -> dict:
+    from maintenance.journal.research_bundle import build_bundle
+    from maintenance.journal.research_viewer import render_viewer
     from src.tools.trade_journal_tool import analyze_trade_journal
 
     directory.mkdir(parents=True, exist_ok=False)
@@ -94,8 +94,6 @@ def build(directory: Path) -> dict:
 
 
 def main() -> int:
-    from pytest_socket import disable_socket
-
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("build").add_argument("directory", type=Path)
@@ -103,10 +101,15 @@ def main() -> int:
     check.add_argument("directory", type=Path)
     check.add_argument("--expected-id", required=True)
     args = parser.parse_args()
-    disable_socket()
     directory = args.directory.resolve()
     try:
-        result = build(directory) if args.command == "build" else verify(directory, args.expected_id)
+        if args.command == "build":
+            from pytest_socket import disable_socket
+
+            disable_socket()
+            result = build(directory)
+        else:
+            result = verify(directory, args.expected_id)
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
