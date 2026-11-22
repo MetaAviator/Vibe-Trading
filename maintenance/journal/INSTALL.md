@@ -43,4 +43,6 @@ $env:PYTHONPATH = 'agent'
 
 成功时终端会显示 `"net_pnl_usd": "4.00"`，并输出包 ID。用浏览器打开 `private-journal/synthetic-replay/research.html`，可核对两天的未复权价格及源快照。再次生成需要指定一个新的输出目录。
 
+样例通过后，可[用自己的规范化成交 CSV 生成本地报告](LOCAL_TRADES.md)。
+
 复制报告、成交 CSV 和研究 ZIP 后，可用 Python 3.12 的标准库在另一台机器复算。[独立复算步骤](SYNTHETIC_REPLAY.md#导出后独立复算)

@@ -123,3 +123,13 @@ jobs:
           if ($package.net_pnl_usd -ne "4.00") { throw "Unexpected sample P&L" }
           Remove-Item Env:PYTHONPATH
           python -S -m maintenance.journal.examples.synthetic_replay verify private-journal/synthetic-replay --expected-id $package.package_id
+      - name: Review the standalone trade CSV using the installed environment
+        env:
+          PYTHONPATH: agent
+        run: |
+          & .\.venv-journal\Scripts\python.exe -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --output private-journal/synthetic-trade-report.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = Get-Content private-journal/synthetic-trade-report.json -Raw | ConvertFrom-Json
+          if ($report.cash_check.net_trade_cash -ne "1.61" -or $report.profile.total_pnl -ne 1.61) {
+            throw "Unexpected standalone CSV review P&L"
+          }
