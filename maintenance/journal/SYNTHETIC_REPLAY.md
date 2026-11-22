@@ -4,7 +4,7 @@
 
 ## 先核对一份报告
 
-下载本分支的源码 ZIP 并解压，或检出本分支。有 Python 3.12 就能在仓库根目录复算。样例随源码提供，无需安装 Vibe-Trading 或 pip 依赖，也无需账户、模型、行情订阅或原始行情 CSV。
+[下载复盘样例 ZIP](replay-starter.zip?raw=1)并解压。有 Python 3.12 就能在解压后的目录复算，也可在本分支源码根目录运行同一命令。无需安装 Vibe-Trading 或 pip 依赖，也无需账户、模型、行情订阅或原始行情 CSV。
 
 ```sh
 python3.12 -S -m maintenance.journal.examples.synthetic_replay verify \
@@ -45,7 +45,7 @@ python3.12 -S -m maintenance.journal.examples.synthetic_replay \
 
 核验器将成交价格与包内对应证券和日期的未复权价格逐项匹配，再用 Decimal 从成交量、价格和各行费用独立计算净盈亏。预期是一组平仓、0.50 USD 费用和 4.00 USD 净盈亏。
 
-维护分支的离线 CI 在 Linux 构建样例，仅传递这三个文件给 macOS。macOS 移走源 CSV 后，用 Python 标准库复算新导出和随源码附上的样例。
+维护分支的离线 CI 在 Linux 构建样例，仅传递这三个文件给 macOS。macOS 移走源 CSV 后，用 Python 标准库复算新导出，同时重新生成并解压公开下载包，确认它与已发布文件逐字节一致。
 
 | 证据 | 核对内容 |
 | --- | --- |

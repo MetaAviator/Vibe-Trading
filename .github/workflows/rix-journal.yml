@@ -80,8 +80,12 @@ jobs:
           mv maintenance/journal/examples/synthetic_stocks.csv "$RUNNER_TEMP/source-stocks.csv"
           python -S -m maintenance.journal.examples.synthetic_replay \
             verify "$RUNNER_TEMP/replay" --expected-id "$EXPECTED_PACKAGE_ID"
-      - name: Check the checkout's starter evidence with the standard library
+      - name: Rebuild and check the reader ZIP with the standard library
         run: |
+          python -S -m maintenance.journal.examples.build_starter_zip "$RUNNER_TEMP/rebuilt-starter.zip"
+          cmp maintenance/journal/replay-starter.zip "$RUNNER_TEMP/rebuilt-starter.zip"
+          python -S -m zipfile -e "$RUNNER_TEMP/rebuilt-starter.zip" "$RUNNER_TEMP/starter"
+          cd "$RUNNER_TEMP/starter"
           python -S -m maintenance.journal.examples.synthetic_replay \
             verify maintenance/journal/examples/starter_evidence \
             --expected-id "$(cat maintenance/journal/examples/starter-package-id.txt)"
