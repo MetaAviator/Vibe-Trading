@@ -20,6 +20,8 @@ jobs:
   journal:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      replay-package-id: ${{ steps.replay.outputs.package-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -33,3 +35,50 @@ jobs:
         run: python maintenance/journal/check_ledger.py --output maintenance/journal/artifacts/synthetic
       - name: Verify index hygiene
         run: python tools/ci_private_files_gate.py
+      - name: Build the public synthetic replay
+        id: replay
+        shell: bash
+        env:
+          PYTHONPATH: agent
+        run: |
+          python -m maintenance.journal.examples.synthetic_replay build "$RUNNER_TEMP/replay" \
+            | tee "$RUNNER_TEMP/replay-build.json"
+          package_id=$(python -c 'import json, sys; print(json.load(sys.stdin)["package_id"])' \
+            < "$RUNNER_TEMP/replay-build.json")
+          printf 'package-id=%s\n' "$package_id" >> "$GITHUB_OUTPUT"
+      - name: Export the three synthetic evidence files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synthetic-replay-evidence
+          path: |
+            ${{ runner.temp }}/replay/research.zip
+            ${{ runner.temp }}/replay/fills.csv
+            ${{ runner.temp }}/replay/journal.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  replay-verification:
+    name: Recompute the Linux export on macOS
+    needs: journal
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install the hash-locked offline verification environment
+        run: python -m pip install --require-hashes -r maintenance/journal/requirements.lock
+      - name: Download the evidence from Linux
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: synthetic-replay-evidence
+          path: ${{ runner.temp }}/replay
+      - name: Verify the exported evidence without the source snapshot
+        env:
+          EXPECTED_PACKAGE_ID: ${{ needs.journal.outputs.replay-package-id }}
+        run: |
+          mv maintenance/journal/examples/synthetic_stocks.csv "$RUNNER_TEMP/source-stocks.csv"
+          python -m maintenance.journal.examples.synthetic_replay \
+            verify "$RUNNER_TEMP/replay" --expected-id "$EXPECTED_PACKAGE_ID"

@@ -27,6 +27,8 @@ PYTHONPATH=agent .venv-journal/bin/python -m maintenance.journal.examples.synthe
 
 核验器将成交价格与包内对应证券和日期的未复权价格逐项匹配，再用 Decimal 从成交量、价格和各行费用独立计算净盈亏。预期是一组平仓、0.50 USD 费用和 4.00 USD 净盈亏。
 
+维护分支的离线 CI 在 Linux 构建样例，仅传递这三个文件给 macOS 复算。复算前移走检出中的原始行情 CSV，包 ID 由构建任务单独传入。
+
 | 证据 | 核对内容 |
 | --- | --- |
 | `research.zip` | 规范化请求、原始小数价格、观测覆盖、复权口径、源快照 SHA256 和包身份。 |
