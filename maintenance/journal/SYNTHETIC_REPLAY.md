@@ -22,15 +22,7 @@ py -3.12 -S -m maintenance.journal.examples.synthetic_replay verify maintenance/
 
 ## 生成证据
 
-在仓库根目录用 Python 3.12 运行。安装依赖后，样例禁用网络 socket，无需模型、行情账号或券商连接。
-
-```sh
-python3.12 -m venv .venv-journal
-.venv-journal/bin/python -m pip install --require-hashes -r maintenance/journal/requirements.lock
-
-PYTHONPATH=agent .venv-journal/bin/python -m maintenance.journal.examples.synthetic_replay \
-  build private-journal/synthetic-replay
-```
+按平台安装最小复盘环境后，可在原有合成行情上生成报告。[macOS、Linux 和 Windows 安装步骤](INSTALL.md)
 
 以新目录作为输出。记录控制台打印的 `package_id`，在浏览器打开输出目录中的 `research.html`。核对 `closeunadj` 和两个日期的原始价格，展开「查看包与快照身份」核对包 ID 和源快照 SHA256。
 

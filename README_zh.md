@@ -1,4 +1,4 @@
-> **Rix 实验维护分支** · [用 Python 3.12 核对一份复盘报告](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告)。无需安装 Vibe-Trading，先用样例的未复权价格和费用复算 4.00 USD 净盈亏。
+> **Rix 实验维护分支** · [安装 Journal Lab](maintenance/journal/INSTALL.md)，在 macOS、Linux 或 Windows 生成离线复盘报告。想先试用，可[只用 Python 3.12 复算一份报告](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告)。
 
 <p align="center">
   <a href="README.md">English</a> | <b>中文</b> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>

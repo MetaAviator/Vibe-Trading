@@ -9,6 +9,7 @@ on:
       - agent/tests/*journal*.py
       - agent/tests/test_generic_split_datetime.py
       - .github/workflows/rix-journal.yml
+      - .gitattributes
   pull_request:
     branches: [codex/rix-journal-maintenance]
   workflow_dispatch:
@@ -89,3 +90,36 @@ jobs:
           python -S -m maintenance.journal.examples.synthetic_replay \
             verify maintenance/journal/examples/starter_evidence \
             --expected-id "$(cat maintenance/journal/examples/starter-package-id.txt)"
+
+  windows-installation:
+    name: Try the reader ZIP and install Journal Lab on Windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Verify the public reader ZIP before installing dependencies
+        run: |
+          $starter = Join-Path $env:RUNNER_TEMP "starter"
+          Expand-Archive maintenance/journal/replay-starter.zip -DestinationPath $starter
+          Set-Location $starter
+          python -S -m maintenance.journal.examples.synthetic_replay verify maintenance/journal/examples/starter_evidence --expected-id (Get-Content maintenance/journal/examples/starter-package-id.txt)
+      - name: Install the hash-locked Journal Lab dependencies
+        run: |
+          python -m venv .venv-journal
+          & .\.venv-journal\Scripts\python.exe -m pip install --require-hashes -r maintenance/journal/requirements.lock
+      - name: Generate and reopen the report with the documented commands
+        run: |
+          $env:PYTHONPATH = "agent"
+          $receipt = & .\.venv-journal\Scripts\python.exe -m maintenance.journal.examples.synthetic_replay build private-journal/synthetic-replay
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $receipt | Write-Output
+          $package = ($receipt -join [Environment]::NewLine) | ConvertFrom-Json
+          if ($package.net_pnl_usd -ne "4.00") { throw "Unexpected sample P&L" }
+          Remove-Item Env:PYTHONPATH
+          python -S -m maintenance.journal.examples.synthetic_replay verify private-journal/synthetic-replay --expected-id $package.package_id
