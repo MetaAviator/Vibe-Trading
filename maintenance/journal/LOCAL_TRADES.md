@@ -19,7 +19,29 @@ $env:PYTHONPATH = 'agent'
 & .\.venv-journal\Scripts\python.exe -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --output private-journal/synthetic-trade-report.json
 ```
 
-报告应列出买入毛额 140.00 USD、卖出毛额 142.00 USD、费用 0.39 USD，以及净成交现金和 FIFO 已实现盈亏各 **1.61 USD**。报告中的 `source_sha256` 锁定这次读取的 CSV 字节。相同文件可在另一台机器用同版工具重跑，再核对输入哈希和结果。
+报告应列出买入毛额 140.00 USD、卖出毛额 142.00 USD、费用 0.39 USD，以及净成交现金和 FIFO 已实现盈亏各 **1.61 USD**。报告中的 `source_sha256` 锁定这次读取的 CSV 字节。相同文件可交给另一台机器用标准库复算。
+
+## 交给另一台机器复算
+
+将原始成交 CSV 和 JSON 报告交给有权复核的人。在同一版仓库的根目录，只用 Python 3.12 运行，保留原 CSV 的字节，避免用表格软件重新保存后改变哈希。
+
+macOS / Linux
+
+```sh
+python3.12 -S -m maintenance.journal.review_trades \
+  maintenance/journal/examples/synthetic_review_trades.csv \
+  --verify-report private-journal/synthetic-trade-report.json
+```
+
+Windows PowerShell
+
+```powershell
+py -3.12 -S -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --verify-report private-journal/synthetic-trade-report.json
+```
+
+复核成功时输出 `"status": "ok"`，以及 CSV 和报告各自的 SHA256、行数、日期区间和复算现金。文件不匹配或数值不符时返回退出码 2。要确认收到的是同一份报告，可将输出的报告 SHA256 与通过独立渠道保存的预期值比较。
+
+复核器直接核对毛额、费用和净成交现金，并核对报告所列 FIFO 总额减去净成交现金的差额。输出的 `fifo_check` 为 `difference_arithmetic_only`。逐笔 FIFO 配对、费用来源和账户总账需单独核验。
 
 ## 换成自己的 CSV
 

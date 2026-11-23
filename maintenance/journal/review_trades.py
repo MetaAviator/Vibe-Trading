@@ -1,4 +1,4 @@
-"""Build a private, source-bound journal report from a normalized USD trade CSV."""
+"""Build or check a local journal report against a normalized USD trade CSV."""
 
 from __future__ import annotations
 
@@ -35,9 +35,6 @@ def _number(value: str, field: str, line: int) -> Decimal:
 
 
 def _check_fills(payload: bytes) -> dict:
-    from backtest.engines._market_hooks import code_currency
-    from src.tools.trade_journal_parsers import _infer_market_from_symbol
-
     rows = csv.DictReader(io.StringIO(payload.decode("utf-8-sig"), newline=""), strict=True)
     if not rows.fieldnames or len(rows.fieldnames) != len(_COLUMNS) or set(rows.fieldnames) != _COLUMNS:
         raise ValueError("expected exactly the normalized trade CSV columns listed in the guide")
@@ -63,12 +60,7 @@ def _check_fills(payload: bytes) -> dict:
             raise ValueError(f"CSV line {line}: datetime must be YYYY-MM-DD HH:MM:SS in source local time")
 
         symbol, side = row["symbol"], row["side"]
-        if (
-            row["currency"] != "USD"
-            or not _US_SYMBOL.fullmatch(symbol)
-            or _infer_market_from_symbol(symbol) != "us"
-            or code_currency(symbol) != "USD"
-        ):
+        if row["currency"] != "USD" or not _US_SYMBOL.fullmatch(symbol):
             raise ValueError(f"CSV line {line}: expected a US equity symbol and USD")
         if side not in {"buy", "sell"}:
             raise ValueError(f"CSV line {line}: side must be buy or sell")
@@ -88,20 +80,45 @@ def _check_fills(payload: bytes) -> dict:
     if not fills:
         raise ValueError("trade CSV contains no fills")
     quantities = defaultdict(Decimal)
-    for _, line, symbol, change in sorted(fills):
+    ordered = sorted(fills)
+    for _, line, symbol, change in ordered:
         quantities[symbol] += change
         if quantities[symbol] < 0:
             raise ValueError(f"CSV line {line}: sell exceeds recorded long holdings")
     if any(quantities.values()):
         raise ValueError("all recorded positions must be closed at the end of the CSV")
 
-    return {"rows": len(fills), "buy_gross": purchases, "sell_gross": sales, "fees": fees}
+    return {
+        "rows": len(fills),
+        "buy_gross": purchases,
+        "sell_gross": sales,
+        "fees": fees,
+        "symbols": quantities.keys(),
+        "date_range": f"{ordered[0][0][:10]} ~ {ordered[-1][0][:10]}",
+    }
+
+
+def _cash_check(observed: dict, fifo_net: Decimal) -> dict[str, str]:
+    cash_net = observed["sell_gross"] - observed["buy_gross"] - observed["fees"]
+    return {
+        "buy_gross": format(observed["buy_gross"], "f"),
+        "sell_gross": format(observed["sell_gross"], "f"),
+        "fees": format(observed["fees"], "f"),
+        "net_trade_cash": format(cash_net, "f"),
+        "fifo_minus_cash": format(fifo_net - cash_net, "f"),
+    }
 
 
 def build_report(payload: bytes) -> dict:
+    from backtest.engines._market_hooks import code_currency
+    from src.tools.trade_journal_parsers import _infer_market_from_symbol
     from src.tools.trade_journal_tool import analyze_trade_journal
 
     observed = _check_fills(payload)
+    if any(
+        _infer_market_from_symbol(symbol) != "us" or code_currency(symbol) != "USD" for symbol in observed["symbols"]
+    ):
+        raise ValueError("expected only US equity symbols in the trade CSV")
     # Analyze the same bytes that were hashed and checked. The staged name is
     # fixed so the report cannot acquire the user's filename or local path.
     with tempfile.TemporaryDirectory(prefix="journal-source-") as staging:
@@ -118,21 +135,72 @@ def build_report(payload: bytes) -> dict:
     if not isinstance(net_pnl, (int, float)) or not math.isfinite(net_pnl):
         raise ValueError("FIFO report does not contain a finite USD total")
     fifo_net = Decimal(str(net_pnl))
-    cash_net = observed["sell_gross"] - observed["buy_gross"] - observed["fees"]
     return {
         "schema_version": 1,
         "source_sha256": sha256(payload).hexdigest(),
         "source_rows": observed["rows"],
         "currency": "USD",
-        "cash_check": {
-            "buy_gross": format(observed["buy_gross"], "f"),
-            "sell_gross": format(observed["sell_gross"], "f"),
-            "fees": format(observed["fees"], "f"),
-            "net_trade_cash": format(cash_net, "f"),
-            "fifo_minus_cash": format(fifo_net - cash_net, "f"),
-        },
+        "cash_check": _cash_check(observed, fifo_net),
         "date_range": analysis["date_range"],
         "profile": profile,
+    }
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("report JSON contains duplicate fields")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"report JSON contains a non-finite number: {value}")
+
+
+def verify_report(source: bytes, report_bytes: bytes) -> dict:
+    """Check source identity, cash, coverage and the reported FIFO difference."""
+    report = json.loads(
+        report_bytes.decode("utf-8"),
+        parse_float=Decimal,
+        parse_constant=_reject_json_constant,
+        object_pairs_hook=_unique_object,
+    )
+    if not isinstance(report, dict) or type(report.get("schema_version")) is not int or report["schema_version"] != 1:
+        raise ValueError("expected a version 1 journal report")
+    source_id = sha256(source).hexdigest()
+    if report.get("source_sha256") != source_id:
+        raise ValueError("source CSV SHA256 does not match the report")
+    observed = _check_fills(source)
+    if (
+        report.get("currency") != "USD"
+        or type(report.get("source_rows")) is not int
+        or report["source_rows"] != observed["rows"]
+        or report.get("date_range") != observed["date_range"]
+    ):
+        raise ValueError("report currency, date range or row count differs from the CSV")
+    profile = report.get("profile")
+    net_pnl = profile.get("total_pnl") if isinstance(profile, dict) else None
+    if type(net_pnl) not in (int, Decimal):
+        raise ValueError("report does not contain a finite numeric FIFO total")
+    native = float(net_pnl)
+    if not math.isfinite(native) or (net_pnl and not native):
+        raise ValueError("report FIFO total is outside the supported numeric range")
+    fifo_net = Decimal(net_pnl)
+    cash = _cash_check(observed, fifo_net)
+    if report.get("cash_check") != cash:
+        raise ValueError("cash amounts or FIFO difference do not match the recalculation")
+    return {
+        "status": "ok",
+        "source_sha256": source_id,
+        "report_sha256": sha256(report_bytes).hexdigest(),
+        "source_rows": observed["rows"],
+        "date_range": observed["date_range"],
+        "currency": "USD",
+        "cash_check": cash,
+        "reported_fifo_pnl": format(fifo_net, "f"),
+        "fifo_check": "difference_arithmetic_only",
     }
 
 
@@ -148,21 +216,27 @@ def _write_new_report(path: Path, report: dict) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from pytest_socket import disable_socket
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="Normalized UTF-8 trade CSV")
-    parser.add_argument("--output", required=True, type=Path, help="New local JSON report path")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--output", type=Path, help="New local JSON report path")
+    mode.add_argument("--verify-report", type=Path, help="Check an existing report without dependencies")
     args = parser.parse_args(argv)
-    disable_socket()
     try:
         source = args.source.expanduser()
         if source.suffix.lower() != ".csv" or not source.is_file():
             raise ValueError("source must be an existing CSV file")
+        if args.verify_report is not None:
+            result = verify_report(source.read_bytes(), args.verify_report.expanduser().read_bytes())
+            print(json.dumps(result, indent=2))
+            return 0
         if args.output.suffix.lower() != ".json":
             raise ValueError("output must be a new JSON file")
+        from pytest_socket import disable_socket
+
+        disable_socket()
         _write_new_report(args.output.expanduser(), build_report(source.read_bytes()))
-    except (OSError, ValueError, csv.Error) as error:
+    except (OSError, ValueError, OverflowError, csv.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     print(f"Wrote {args.output}")
