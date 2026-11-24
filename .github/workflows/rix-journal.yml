@@ -31,7 +31,7 @@ jobs:
       - name: Install the hash-locked offline verification environment
         run: python -m pip install --require-hashes -r maintenance/journal/requirements.lock
       - name: Run journal tests without network access
-        run: python -m pytest agent/tests/test*journal*.py agent/tests/test_generic_split_datetime.py --disable-socket -q
+        run: python -m pytest agent/tests/test*journal*.py agent/tests/test_generic_split_datetime.py maintenance/journal/tests --disable-socket -q
       - name: Check the independently linked synthetic ledger
         run: python maintenance/journal/check_ledger.py --output maintenance/journal/artifacts/synthetic
       - name: Verify index hygiene
@@ -55,6 +55,24 @@ jobs:
             ${{ runner.temp }}/replay/research.zip
             ${{ runner.temp }}/replay/fills.csv
             ${{ runner.temp }}/replay/journal.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Generate a report and preserve the exact synthetic input CSV
+        env:
+          PYTHONPATH: agent
+        run: |
+          review="$RUNNER_TEMP/local-review"
+          mkdir "$review"
+          cp maintenance/journal/examples/synthetic_review_trades.csv "$review/trades.csv"
+          python -m maintenance.journal.review_trades "$review/trades.csv" --output "$review/report.json"
+      - name: Transfer the two synthetic report verification files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synthetic-csv-report-verification
+          path: |
+            ${{ runner.temp }}/local-review/trades.csv
+            ${{ runner.temp }}/local-review/report.json
           if-no-files-found: error
           overwrite: true
           retention-days: 7
@@ -90,6 +108,15 @@ jobs:
           python -S -m maintenance.journal.examples.synthetic_replay \
             verify maintenance/journal/examples/starter_evidence \
             --expected-id "$(cat maintenance/journal/examples/starter-package-id.txt)"
+      - name: Download the Linux CSV and report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: synthetic-csv-report-verification
+          path: ${{ runner.temp }}/local-review
+      - name: Recalculate trade cash from the transferred CSV with the standard library
+        run: |
+          python -S -m maintenance.journal.review_trades "$RUNNER_TEMP/local-review/trades.csv" \
+            --verify-report "$RUNNER_TEMP/local-review/report.json"
 
   windows-installation:
     name: Try the reader ZIP and install Journal Lab on Windows
@@ -123,3 +150,15 @@ jobs:
           if ($package.net_pnl_usd -ne "4.00") { throw "Unexpected sample P&L" }
           Remove-Item Env:PYTHONPATH
           python -S -m maintenance.journal.examples.synthetic_replay verify private-journal/synthetic-replay --expected-id $package.package_id
+      - name: Review the standalone trade CSV using the installed environment
+        env:
+          PYTHONPATH: agent
+        run: |
+          & .\.venv-journal\Scripts\python.exe -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --output private-journal/synthetic-trade-report.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = Get-Content private-journal/synthetic-trade-report.json -Raw | ConvertFrom-Json
+          if ($report.cash_check.net_trade_cash -ne "1.61" -or $report.profile.total_pnl -ne 1.61) {
+            throw "Unexpected standalone CSV review P&L"
+          }
+          Remove-Item Env:PYTHONPATH
+          python -S -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --verify-report private-journal/synthetic-trade-report.json
