@@ -31,11 +31,11 @@ def _read_bounded(path: Path) -> bytes:
     return data
 
 
-def build_bundle(source: bytes, report: bytes, output: Path) -> dict:
+def build_bundle(source: bytes, report: bytes, output: Path, *, verify_fifo: bool = False) -> dict:
     """Check the two inputs before publishing a deterministic ZIP at a new path."""
     if len(source) + len(report) > MAX_BUNDLE_BYTES:
         raise ValueError("inputs exceed the 128 MiB review bundle size limit")
-    result = verify_report(source, report)
+    result = verify_report(source, report, verify_fifo=verify_fifo)
     data = BytesIO()
     with ZipFile(data, "w") as archive:
         for name, content in zip(MEMBERS, (source, report), strict=True):
@@ -58,7 +58,7 @@ def build_bundle(source: bytes, report: bytes, output: Path) -> dict:
     return {**result, "bundle_sha256": sha256(payload).hexdigest()}
 
 
-def verify_bundle(payload: bytes, *, expected_sha256: str | None = None) -> dict:
+def verify_bundle(payload: bytes, *, expected_sha256: str | None = None, verify_fifo: bool = False) -> dict:
     """Read the two members directly without extracting any ZIP entries."""
     if len(payload) > MAX_BUNDLE_BYTES:
         raise ValueError("ZIP exceeds the 128 MiB review bundle size limit")
@@ -86,7 +86,7 @@ def verify_bundle(payload: bytes, *, expected_sha256: str | None = None) -> dict
         if sum(entry.file_size for entry in entries) > MAX_BUNDLE_BYTES:
             raise ValueError("ZIP members exceed the 128 MiB review bundle size limit")
         source, report = (archive.read(name) for name in MEMBERS)
-    return {**verify_report(source, report), "bundle_sha256": digest}
+    return {**verify_report(source, report, verify_fifo=verify_fifo), "bundle_sha256": digest}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -99,6 +99,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify = commands.add_parser("verify", help="Verify a bundle without extracting or installing packages")
     verify.add_argument("bundle", type=Path)
     verify.add_argument("--expected-sha256")
+    for mode in (build, verify):
+        mode.add_argument("--verify-fifo", action="store_true", help="Also independently match trades and verify FIFO")
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
@@ -108,9 +110,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _read_bounded(args.source.expanduser()),
                 _read_bounded(args.report.expanduser()),
                 args.output.expanduser(),
+                verify_fifo=args.verify_fifo,
             )
         else:
-            result = verify_bundle(_read_bounded(args.bundle.expanduser()), expected_sha256=args.expected_sha256)
+            result = verify_bundle(
+                _read_bounded(args.bundle.expanduser()),
+                expected_sha256=args.expected_sha256,
+                verify_fifo=args.verify_fifo,
+            )
     except (OSError, ValueError, OverflowError, BadZipFile, csv.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

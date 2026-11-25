@@ -45,7 +45,7 @@ def test_build_and_verify_transfer_identical_bytes(evidence, tmp_path):
     source, report = evidence
     first, repeat = tmp_path / "first.zip", tmp_path / "repeat.zip"
     built = review_bundle.build_bundle(source, report, first)
-    review_bundle.build_bundle(source, report, repeat)
+    review_bundle.build_bundle(source, report, repeat, verify_fifo=True)
     assert first.read_bytes() == repeat.read_bytes()
     assert built["bundle_sha256"] == sha256(first.read_bytes()).hexdigest()
     assert built["cash_check"]["net_trade_cash"] == "1.61"
@@ -113,7 +113,8 @@ def test_bundle_size_is_bounded(evidence, tmp_path, monkeypatch):
     assert not output.exists()
 
 
-def test_only_the_trusted_checkout_modules_and_zip_are_needed(evidence, tmp_path):
+@pytest.mark.parametrize("fifo", [False, True])
+def test_only_the_trusted_checkout_modules_and_zip_are_needed(evidence, tmp_path, fifo):
     source, report = evidence
     end = tmp_path / "receiver"
     package = end / "maintenance/journal"
@@ -122,10 +123,11 @@ def test_only_the_trusted_checkout_modules_and_zip_are_needed(evidence, tmp_path
         shutil.copyfile(JOURNAL / script, package / script)
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     command = [sys.executable, "-S", "-m", "maintenance.journal.review_bundle"]
+    flags = ["--verify-fifo"] if fifo else []
     (end / "source.csv").write_bytes(source)
     (end / "report.json").write_bytes(report)
     built = subprocess.check_output(
-        [*command, "build", "source.csv", "report.json", "--output", "review.zip"],
+        [*command, "build", "source.csv", "report.json", "--output", "review.zip", *flags],
         cwd=end,
         env=env,
         text=True,
@@ -134,10 +136,32 @@ def test_only_the_trusted_checkout_modules_and_zip_are_needed(evidence, tmp_path
     (end / "report.json").unlink()
     expected = json.loads(built)["bundle_sha256"]
     verified = subprocess.check_output(
-        [*command, "verify", "review.zip", "--expected-sha256", expected],
+        [*command, "verify", "review.zip", "--expected-sha256", expected, *flags],
         cwd=end,
         env=env,
         text=True,
     )
-    assert json.loads(verified) == json.loads(built)
+    result = json.loads(verified)
+    assert result == json.loads(built)
+    if fifo:
+        assert result["fifo_match_count"] == 3
+        assert result["recomputed_fifo_pnl"] == "1.61"
+        assert result["fifo_matches"][0]["buy_execution_id"] == "S001"
     assert {path.name for path in end.iterdir()} == {"maintenance", "review.zip"}
+
+
+def test_strict_fifo_rejects_a_matching_cash_check_with_changed_fifo(evidence, tmp_path):
+    source, report = evidence
+    changed = json.loads(report)
+    changed["profile"]["total_pnl"] = 1.62
+    changed["cash_check"]["fifo_minus_cash"] = "0.01"
+    changed_bytes = json.dumps(changed).encode()
+    old = tmp_path / "old.zip"
+    review_bundle.build_bundle(source, changed_bytes, old)
+    assert review_bundle.verify_bundle(old.read_bytes())["status"] == "ok"
+    with pytest.raises(ValueError, match="FIFO total differs"):
+        review_bundle.verify_bundle(old.read_bytes(), verify_fifo=True)
+    strict = tmp_path / "unpublished.zip"
+    with pytest.raises(ValueError, match="FIFO total differs"):
+        review_bundle.build_bundle(source, changed_bytes, strict, verify_fifo=True)
+    assert not strict.exists()

@@ -84,7 +84,7 @@ jobs:
         run: |
           review="$RUNNER_TEMP/local-review"
           python -S -m maintenance.journal.review_bundle build "$review/trades.csv" "$review/report.json" \
-            --output "$review/review.zip" | tee "$RUNNER_TEMP/review-bundle.json"
+            --output "$review/review.zip" --verify-fifo | tee "$RUNNER_TEMP/review-bundle.json"
           digest=$(python -c 'import json,sys; print(json.load(sys.stdin)["bundle_sha256"])' < "$RUNNER_TEMP/review-bundle.json")
           printf 'sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Transfer the synthetic review ZIP
@@ -137,7 +137,7 @@ jobs:
           EXPECTED_BUNDLE_SHA256: ${{ needs.journal.outputs.review-bundle-sha256 }}
         run: |
           python -S -m maintenance.journal.review_bundle verify "$RUNNER_TEMP/review-bundle/review.zip" \
-            --expected-sha256 "$EXPECTED_BUNDLE_SHA256"
+            --expected-sha256 "$EXPECTED_BUNDLE_SHA256" --verify-fifo
       - name: Download the Linux CSV and report
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
