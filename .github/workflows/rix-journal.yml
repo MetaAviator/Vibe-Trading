@@ -24,6 +24,7 @@ jobs:
     outputs:
       replay-package-id: ${{ steps.replay.outputs.package-id }}
       review-bundle-sha256: ${{ steps.review-bundle.outputs.sha256 }}
+      onchain-evidence-sha256: ${{ steps.onchain.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -96,6 +97,22 @@ jobs:
           overwrite: true
           retention-days: 7
 
+      - name: Package the synthetic on-chain receipt
+        id: onchain
+        run: |
+          python -S -m maintenance.journal.onchain_receipt build maintenance/journal/examples/synthetic_onchain \
+            --output "$RUNNER_TEMP/onchain-receiver/evidence.json" > "$RUNNER_TEMP/onchain-report.json"
+          digest=$(python -c 'import json,sys; print(json.load(sys.stdin)["bundle_sha256"])' < "$RUNNER_TEMP/onchain-report.json")
+          printf 'sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Transfer the synthetic on-chain evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synthetic-onchain-evidence
+          path: ${{ runner.temp }}/onchain-receiver/evidence.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
   replay-verification:
     name: Recompute the Linux export on macOS
     needs: journal
@@ -149,6 +166,20 @@ jobs:
         run: |
           python -S -m maintenance.journal.review_trades "$RUNNER_TEMP/local-review/trades.csv" \
             --verify-report "$RUNNER_TEMP/local-review/report.json" --verify-fifo
+
+      - name: Download the synthetic on-chain evidence from Linux
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: synthetic-onchain-evidence
+          path: ${{ runner.temp }}/onchain-receiver
+      - name: Recalculate wallet flows and gas with a standalone verifier
+        env:
+          EXPECTED_EVIDENCE_SHA256: ${{ needs.journal.outputs.onchain-evidence-sha256 }}
+        run: |
+          receiver="$RUNNER_TEMP/onchain-receiver"
+          cp maintenance/journal/onchain_receipt.py "$receiver/verify.py"
+          cd "$receiver"
+          python -S verify.py verify evidence.json --expected-sha256 "$EXPECTED_EVIDENCE_SHA256"
 
   windows-installation:
     name: Try the reader ZIP and install Journal Lab on Windows
