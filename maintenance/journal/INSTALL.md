@@ -8,7 +8,9 @@
 
 确认本机可运行 `python3.12 --version`，或在 Windows PowerShell 中运行 `py -3.12 --version`。[Python 安装说明](https://docs.python.org/3.12/using/index.html)
 
-从 GitHub [下载维护分支源码 ZIP](https://github.com/MetaAviator/Vibe-Trading/archive/refs/heads/codex/rix-journal-maintenance.zip) 并解压，或用 Git 检出。
+如果从 GitHub Release 开始，请在所选版本的 **Assets** 中下载 **Source code (zip)** 并解压，或用 `git clone --branch <版本标签> --single-branch https://github.com/MetaAviator/Vibe-Trading.git` 检出同一版本。
+
+开发版可从 GitHub [下载维护分支源码 ZIP](https://github.com/MetaAviator/Vibe-Trading/archive/refs/heads/codex/rix-journal-maintenance.zip) 并解压，或用 Git 检出。
 
 ```sh
 git clone --branch codex/rix-journal-maintenance --single-branch https://github.com/MetaAviator/Vibe-Trading.git
