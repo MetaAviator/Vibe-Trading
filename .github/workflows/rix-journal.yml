@@ -113,10 +113,10 @@ jobs:
         with:
           name: synthetic-csv-report-verification
           path: ${{ runner.temp }}/local-review
-      - name: Recalculate trade cash from the transferred CSV with the standard library
+      - name: Recalculate trade cash and FIFO from the transferred CSV
         run: |
           python -S -m maintenance.journal.review_trades "$RUNNER_TEMP/local-review/trades.csv" \
-            --verify-report "$RUNNER_TEMP/local-review/report.json"
+            --verify-report "$RUNNER_TEMP/local-review/report.json" --verify-fifo
 
   windows-installation:
     name: Try the reader ZIP and install Journal Lab on Windows
@@ -161,4 +161,4 @@ jobs:
             throw "Unexpected standalone CSV review P&L"
           }
           Remove-Item Env:PYTHONPATH
-          python -S -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --verify-report private-journal/synthetic-trade-report.json
+          python -S -m maintenance.journal.review_trades maintenance/journal/examples/synthetic_review_trades.csv --verify-report private-journal/synthetic-trade-report.json --verify-fifo
