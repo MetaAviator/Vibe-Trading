@@ -1,4 +1,8 @@
-> **Rix experimental maintenance branch** · [Install Journal Lab](maintenance/journal/INSTALL.md) on macOS, Linux, or Windows to generate an offline trade report. To try it first, [recompute a sample report with Python 3.12](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告).
+## Rix Journal Lab
+
+Self-hosted trade review. Recompute a report on another machine and trace its numbers back to the original fills. Based on HKUDS/Vibe-Trading.
+
+[Download the ~43 KB sample](maintenance/journal/replay-starter.zip?raw=1) · [Recompute 4.00 USD with Python 3.12](maintenance/journal/TRY_JOURNAL_LAB.md) · [Download the FIFO and offline HTML sample](maintenance/journal/review-starter.zip?raw=1) · [Install Journal Lab](maintenance/journal/INSTALL.md)
 
 <p align="center">
   <b>English</b> | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>
