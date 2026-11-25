@@ -61,7 +61,7 @@ def _fifo_section(receipt: dict) -> str:
     )
     return (
         "<section><h2>逐笔 FIFO</h2>"
-        f'<p>独立复算 {_text(receipt["fifo_match_count"])} 段。报告样本已核对 {_text(receipt["fifo_samples_checked"])} 段。'
+        f"<p>独立复算 {_text(receipt['fifo_match_count'])} 段。报告样本已核对 {_text(receipt['fifo_samples_checked'])} 段。"
         "数量和分摊费用用精确分数表示，金额单位为 USD。</p>"
         '<div class="scroll" role="region" aria-label="FIFO 配对表" tabindex="0">'
         f"<table><thead><tr>{headers}</tr></thead><tbody>{rows}</tbody></table></div></section>"
@@ -74,16 +74,16 @@ def render_receipt(receipt: dict, *, matched_expected_sha256: bool) -> bytes:
     fifo_pnl = receipt.get("recomputed_fifo_pnl", receipt["reported_fifo_pnl"])
     summary = _facts(
         (
-            ("净成交现金", f'{cash["net_trade_cash"]} USD'),
-            ("费用合计", f'{cash["fees"]} USD'),
+            ("净成交现金", f"{cash['net_trade_cash']} USD"),
+            ("费用合计", f"{cash['fees']} USD"),
             (fifo_label, f"{fifo_pnl} USD"),
         )
     )
     amounts = _facts(
         (
-            ("买入毛额", f'{cash["buy_gross"]} USD'),
-            ("卖出毛额", f'{cash["sell_gross"]} USD'),
-            ("FIFO 盈亏与净成交现金差额", f'{cash["fifo_minus_cash"]} USD'),
+            ("买入毛额", f"{cash['buy_gross']} USD"),
+            ("卖出毛额", f"{cash['sell_gross']} USD"),
+            ("FIFO 盈亏与净成交现金差额", f"{cash['fifo_minus_cash']} USD"),
         )
     )
     hashes = "".join(
