@@ -31,6 +31,17 @@ def _read_bounded(path: Path) -> bytes:
     return data
 
 
+def _publish_new_file(output: Path, payload: bytes) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        temporary.write_bytes(payload)
+        os.link(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def build_bundle(source: bytes, report: bytes, output: Path, *, verify_fifo: bool = False) -> dict:
     """Check the two inputs before publishing a deterministic ZIP at a new path."""
     if len(source) + len(report) > MAX_BUNDLE_BYTES:
@@ -47,14 +58,7 @@ def build_bundle(source: bytes, report: bytes, output: Path, *, verify_fifo: boo
     payload = data.getvalue()
     if len(payload) > MAX_BUNDLE_BYTES:
         raise ValueError("ZIP exceeds the 128 MiB review bundle size limit")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as handle:
-        temporary = Path(handle.name)
-    try:
-        temporary.write_bytes(payload)
-        os.link(temporary, output)
-    finally:
-        temporary.unlink(missing_ok=True)
+    _publish_new_file(output, payload)
     return {**result, "bundle_sha256": sha256(payload).hexdigest()}
 
 
@@ -99,6 +103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify = commands.add_parser("verify", help="Verify a bundle without extracting or installing packages")
     verify.add_argument("bundle", type=Path)
     verify.add_argument("--expected-sha256")
+    verify.add_argument("--output-html", type=Path, help="Write a local receipt to a new .html file")
     for mode in (build, verify):
         mode.add_argument("--verify-fifo", action="store_true", help="Also independently match trades and verify FIFO")
     args = parser.parse_args(argv)
@@ -118,6 +123,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_sha256=args.expected_sha256,
                 verify_fifo=args.verify_fifo,
             )
+            if args.output_html is not None:
+                from .review_receipt import render_receipt
+
+                output = args.output_html.expanduser()
+                if output.suffix.lower() != ".html":
+                    raise ValueError("HTML receipt output must be a new .html file")
+                html = render_receipt(result, matched_expected_sha256=args.expected_sha256 is not None)
+                _publish_new_file(output, html)
     except (OSError, ValueError, OverflowError, BadZipFile, csv.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

@@ -79,3 +79,15 @@ python3.12 -S -m maintenance.journal.review_bundle verify \
 ZIP 原样保留 `trades.csv` 和 `report.json`。核验器比对 ZIP 哈希、原始 CSV 哈希与报告金额，包括费用、净成交现金和 FIFO 差额的算术一致性。`--expected-sha256` 可省略，省略时核对限于包内文件的一致性及重算结果。包内成交与报告均为明文，含个人数据的 ZIP 应留在本机或通过有权访问的私有渠道移交。
 
 在 `build` 或 `verify` 命令末尾加 `--verify-fifo`，即可按原 CSV 重做所有 FIFO 配对，检查总盈亏、总段数及报告展示的配对样本。旧版 ZIP 可直接严格复核，开启选项也不会改变 ZIP 的内容或哈希。验收使用每段半分时取偶数的美分口径。旧报告浮点舍入若有差异，命令返回退出码 2，严格模式封装不会写出 ZIP。
+
+### 在浏览器查看核验结果
+
+核验时可额外生成一份 HTML，直接用浏览器离线打开。页面显示净成交现金、费用、三个文件哈希。开启 `--verify-fifo` 后，页面也会列出所有独立复算的配对与两侧成交 ID。
+
+```sh
+python3.12 -S -m maintenance.journal.review_bundle verify \
+  /path/to/synthetic-trade-review.zip --expected-sha256 '<bundle_sha256>' \
+  --verify-fifo --output-html private-journal/review-receipt.html
+```
+
+程序仅在核验成功后写入新的 `.html` 文件，同时照常向终端输出 JSON。页面会注明是否与预先记录的 ZIP 哈希比对。页面中的金额和成交 ID 为明文，使用个人数据生成的 HTML 应留在本机或通过有权访问的私有渠道移交。

@@ -13,7 +13,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
 
-from maintenance.journal import review_bundle
+from maintenance.journal import review_bundle, review_receipt
 
 ROOT = Path(__file__).resolve().parents[3]
 JOURNAL = ROOT / "maintenance/journal"
@@ -165,3 +165,55 @@ def test_strict_fifo_rejects_a_matching_cash_check_with_changed_fifo(evidence, t
     with pytest.raises(ValueError, match="FIFO total differs"):
         review_bundle.build_bundle(source, changed_bytes, strict, verify_fifo=True)
     assert not strict.exists()
+
+
+def test_html_receipt_with_only_the_trusted_modules_and_zip(evidence, tmp_path):
+    package = tmp_path / "maintenance/journal"
+    package.mkdir(parents=True)
+    for script in ("review_bundle.py", "review_trades.py", "review_receipt.py"):
+        shutil.copyfile(JOURNAL / script, package / script)
+    bundle = tmp_path / "review.zip"
+    built = review_bundle.build_bundle(*evidence, bundle, verify_fifo=True)
+    command = [sys.executable, "-S", "-m", "maintenance.journal.review_bundle", "verify", "review.zip"]
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+
+    def run(expected, output):
+        return subprocess.run(
+            [*command, "--expected-sha256", expected, "--verify-fifo", "--output-html", output],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+        )
+
+    output = tmp_path / "receipt.html"
+    failed = run("0" * 64, output.name)
+    assert failed.returncode == 2
+    assert not output.exists()
+    result = run(built["bundle_sha256"], output.name)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == built
+    html = output.read_text(encoding="utf-8")
+    assert "已匹配预先记录的 SHA256" in html
+    assert "1.61 USD" in html
+    assert "独立复算 3 段" in html
+    for field in ("bundle_sha256", "source_sha256", "report_sha256"):
+        assert built[field] in html
+    assert "S001" in html
+    repeated = run(built["bundle_sha256"], output.name)
+    assert repeated.returncode == 2
+    assert output.read_text(encoding="utf-8") == html
+
+
+def test_html_distinguishes_the_verification_scope_and_escapes_ids(evidence, tmp_path):
+    bundle = tmp_path / "review.zip"
+    basic = review_bundle.build_bundle(*evidence, bundle)
+    html = review_receipt.render_receipt(basic, matched_expected_sha256=False).decode()
+    assert "核验范围为包内文件的一致性" in html
+    assert "报告所列 FIFO 盈亏" in html
+    assert "<table>" not in html
+
+    strict = review_bundle.verify_bundle(bundle.read_bytes(), verify_fifo=True)
+    strict["fifo_matches"][0]["buy_execution_id"] = '<img src="example.invalid">'
+    html = review_receipt.render_receipt(strict, matched_expected_sha256=False).decode()
+    assert "&lt;img src=&quot;example.invalid&quot;&gt;" in html
+    assert "<img" not in html

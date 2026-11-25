@@ -137,7 +137,9 @@ jobs:
           EXPECTED_BUNDLE_SHA256: ${{ needs.journal.outputs.review-bundle-sha256 }}
         run: |
           python -S -m maintenance.journal.review_bundle verify "$RUNNER_TEMP/review-bundle/review.zip" \
-            --expected-sha256 "$EXPECTED_BUNDLE_SHA256" --verify-fifo
+            --expected-sha256 "$EXPECTED_BUNDLE_SHA256" --verify-fifo \
+            --output-html "$RUNNER_TEMP/review-bundle/receipt.html"
+          grep -Fq "$EXPECTED_BUNDLE_SHA256" "$RUNNER_TEMP/review-bundle/receipt.html"
       - name: Download the Linux CSV and report
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
