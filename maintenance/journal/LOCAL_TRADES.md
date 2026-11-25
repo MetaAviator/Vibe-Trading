@@ -57,3 +57,23 @@ py -3.12 -S -m maintenance.journal.review_trades maintenance/journal/examples/sy
 - CSV 是成交输入。拆股、分红、换汇及其他账户现金流需按[真实记录验收](REAL_DATA.md)另行处理。个人 CSV 和报告存放于仓库外或 `private-journal/`。报告生成要求新文件名。
 
 发生输入错误时查看命令标出的 CSV 行和字段，先与原始记录对照。修正规范化副本后再跑。
+
+## 将 CSV 和报告一起移交
+
+发送方可把**原 CSV 和已生成的报告**封装成一个 ZIP 文件。生成 ZIP 前先复算，文件名必须是新路径。在仓库根目录运行以下命令，Windows PowerShell 可将 `python3.12` 换成 `py -3.12`，并把命令写在一行。
+
+```sh
+python3.12 -S -m maintenance.journal.review_bundle build \
+  maintenance/journal/examples/synthetic_review_trades.csv \
+  private-journal/synthetic-trade-report.json \
+  --output private-journal/synthetic-trade-review.zip
+```
+
+单独记录输出的 `bundle_sha256`。接收方从可信来源取得同版仓库，在仓库根目录直接核对 ZIP，无需解压文件或安装额外 Python 包。用预先记录的 64 个十六进制字符替换下例中的占位符。
+
+```sh
+python3.12 -S -m maintenance.journal.review_bundle verify \
+  /path/to/synthetic-trade-review.zip --expected-sha256 '<bundle_sha256>'
+```
+
+ZIP 原样保留 `trades.csv` 和 `report.json`。核验器比对 ZIP 哈希、原始 CSV 哈希与报告金额，包括费用、净成交现金和 FIFO 差额的算术一致性。`--expected-sha256` 可省略，省略时核对限于包内文件的一致性及重算结果。包内成交与报告均为明文，含个人数据的 ZIP 应留在本机或通过有权访问的私有渠道移交。
