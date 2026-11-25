@@ -1,4 +1,8 @@
-> **Rix 实验维护分支** · [安装 Journal Lab](maintenance/journal/INSTALL.md)，在 macOS、Linux 或 Windows 生成离线复盘报告。想先试用，可[只用 Python 3.12 复算一份报告](maintenance/journal/SYNTHETIC_REPLAY.md#先核对一份报告)。
+## Rix Journal Lab
+
+可自托管、可独立复算的交易复盘工具。把成交证据包带到另一台机器，从报告数字追到原始成交。基于 HKUDS/Vibe-Trading。
+
+[下载约 43 KB 的样例](maintenance/journal/replay-starter.zip?raw=1) · [用 Python 3.12 复算 4.00 USD](maintenance/journal/TRY_JOURNAL_LAB.md) · [下载逐笔 FIFO 与离线 HTML 样例](maintenance/journal/review-starter.zip?raw=1) · [安装 Journal Lab](maintenance/journal/INSTALL.md)
 
 <p align="center">
   <a href="README.md">English</a> | <b>中文</b> | <a href="README_ja.md">日本語</a> | <a href="README_ko.md">한국어</a> | <a href="README_ar.md">العربية</a> | <a href="README_es.md">Español</a> | <a href="README_id.md">Bahasa Indonesia</a>

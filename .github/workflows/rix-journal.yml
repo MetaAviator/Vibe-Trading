@@ -87,6 +87,11 @@ jobs:
             --output "$review/review.zip" --verify-fifo | tee "$RUNNER_TEMP/review-bundle.json"
           digest=$(python -c 'import json,sys; print(json.load(sys.stdin)["bundle_sha256"])' < "$RUNNER_TEMP/review-bundle.json")
           printf 'sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Rebuild the FIFO reader ZIP and verify its published bytes
+        run: |
+          python -S -m maintenance.journal.examples.build_starter_zip "$RUNNER_TEMP/fifo-reader.zip" \
+            --review-bundle "$RUNNER_TEMP/local-review/review.zip"
+          cmp maintenance/journal/review-starter.zip "$RUNNER_TEMP/fifo-reader.zip"
       - name: Transfer the synthetic review ZIP
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -168,6 +173,17 @@ jobs:
           Expand-Archive maintenance/journal/replay-starter.zip -DestinationPath $starter
           Set-Location $starter
           python -S -m maintenance.journal.examples.synthetic_replay verify maintenance/journal/examples/starter_evidence --expected-id (Get-Content maintenance/journal/examples/starter-package-id.txt)
+      - name: Verify the public FIFO reader ZIP before installing dependencies
+        run: |
+          $starter = Join-Path $env:RUNNER_TEMP "fifo-starter"
+          Expand-Archive maintenance/journal/review-starter.zip -DestinationPath $starter
+          Set-Location $starter
+          $receipt = python -S -m maintenance.journal.review_bundle verify review.zip --expected-sha256 (Get-Content review-sha256.txt) --verify-fifo --output-html receipt.html
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = ($receipt -join "`n") | ConvertFrom-Json
+          if ($result.recomputed_fifo_pnl -ne "1.61" -or $result.cash_check.fees -ne "0.39" -or $result.fifo_match_count -ne 3 -or !(Test-Path receipt.html)) {
+            throw "Unexpected FIFO reader receipt"
+          }
       - name: Install the hash-locked Journal Lab dependencies
         run: |
           python -m venv .venv-journal
