@@ -47,3 +47,11 @@ python3.12 -S onchain_receipt.py verify synthetic-onchain.json --expected-sha256
 | `finalized.json` | 来自同一来源的 `eth_getBlockByNumber`，参数为 `["finalized", false]`。 |
 
 接收方检查交易是否位于区块列出的索引，记录 RPC 返回的 finalized 高度与哈希，并拒绝矛盾的引用。离线结论依赖采集时获取的链视图和提供的合约元数据。采集者可用第二个端点复核区块哈希、日志和合约字段。区块包含证明、密码学最终性证明和完整余额对账留在此命令之外。 [Ethereum 执行层 API](https://ethereum.org/developers/docs/apis/json-rpc/#eth_getblockbynumber)
+
+### 核对钱包的区块前后余额
+
+在公开快照的 `context.json` 加入 `"balance_check": "block_hash"`，并提供 `balances.json`。该文件有 `before`、`after` 两组。每组按 `native` 和两个小写代币合约地址保存三条观察。每条观察以 `request` 保存 JSON-RPC 请求对象，以 `response` 保存原始 JSON-RPC 响应文本。使用正整数请求 ID，响应沿用同一 ID。
+
+原生余额使用 `eth_getBalance`，代币余额用 `eth_call` 调用 ERC-20 的 `balanceOf(wallet)`。before 指向 `block.parentHash`，after 指向交易区块哈希。两边按 EIP-1898 传入区块哈希和 `requireCanonical: true`。接收方核对请求参数与原始响应，将区块间余额差与收据中的代币流和 gas 逐项比较。任何差异都会令核验失败。 [EIP-1898](https://eips.ethereum.org/EIPS/eip-1898)
+
+结果说明在该交易所在区块上的净变化是否吻合。若同一区块存在其他钱包活动，需另行归因。此检查保留提供方观察值，离线过程依赖这些值的来源可信度。

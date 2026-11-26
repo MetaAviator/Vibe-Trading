@@ -166,3 +166,83 @@ def test_rpc_package_rejects_inconsistent_snapshots(rpc_inputs, name, change, me
     _update(rpc_inputs, name, change)
     with pytest.raises(ValueError, match=message):
         onchain_receipt.build_package(rpc_inputs)
+
+
+@pytest.fixture
+def balance_inputs(rpc_inputs):
+    _update(rpc_inputs, "context", lambda data: data.update(balance_check="block_hash"))
+    parent = "0x" + "12" * 32
+    _update(rpc_inputs, "block", lambda data: data["result"].update(parentHash=parent))
+    block_hash = json.loads(rpc_inputs["block"])["result"]["hash"]
+    context = json.loads(rpc_inputs["context"])
+    wallet = context["wallet"]
+    token0, token1 = (token["address"] for token in context["tokens"])
+    values = {
+        "before": {"native": 10**18, token0: 1_000_000_000, token1: 0},
+        "after": {"native": 997_000_000_000_000_000, token0: 749_875_000, token1: 10**17},
+    }
+    observations = {}
+    for phase, block in (("before", parent), ("after", block_hash)):
+        mark = {"blockHash": block, "requireCanonical": True}
+        entries = {}
+        for index, (asset, balance) in enumerate(values[phase].items(), start=1):
+            if asset == "native":
+                method, params, result = "eth_getBalance", [wallet, mark], hex(balance)
+            else:
+                method = "eth_call"
+                params = [{"to": asset, "data": "0x70a08231" + wallet[2:].zfill(64)}, mark]
+                result = "0x" + balance.to_bytes(32).hex()
+            entries[asset] = {
+                "request": {"method": method, "params": params, "jsonrpc": "2.0", "id": index},
+                "response": json.dumps({"jsonrpc": "2.0", "id": index, "result": result}),
+            }
+        observations[phase] = entries
+    return {**rpc_inputs, "balances": json.dumps(observations).encode()}
+
+
+def test_balances_reconcile_the_erc20_flows_and_native_gas(balance_inputs):
+    payload, report = onchain_receipt.build_package(balance_inputs)
+    assert [asset["delta_atomic"] for asset in report["block_balance_check"]["assets"]] == [
+        "-3000000000000000",
+        "-250125000",
+        "100000000000000000",
+    ]
+    assert report["block_balance_check"]["parent_block_hash"] == "0x" + "12" * 32
+    assert onchain_receipt.verify_package(payload, report["bundle_sha256"]) == report
+
+
+def test_an_explicit_balance_check_requires_its_input(balance_inputs):
+    del balance_inputs["balances"]
+    with pytest.raises(ValueError, match="expected exactly these inputs: .*balances"):
+        onchain_receipt.summarize(balance_inputs)
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        (
+            lambda data: data["after"]["native"]["request"]["params"][1].update(requireCanonical=False),
+            "canonical block hash",
+        ),
+        (
+            lambda data: data["after"]["native"]["request"]["params"].__setitem__(0, "0x" + "de" * 20),
+            "match the wallet",
+        ),
+        (
+            lambda data: data["after"]["native"]["request"]["params"][1].update(blockHash="0x" + "12" * 32),
+            "canonical block hash",
+        ),
+        (
+            lambda data: data["after"]["native"].update(response='{"jsonrpc":"2.0","id":2,"result":"0x0"}'),
+            "match the request id",
+        ),
+        (
+            lambda data: data["after"]["native"].update(response='{"jsonrpc":"2.0","id":1,"result":"0x0"}'),
+            "delta does not match",
+        ),
+    ],
+)
+def test_balance_check_rejects_mismatched_observations(balance_inputs, change, error):
+    _update(balance_inputs, "balances", change)
+    with pytest.raises(ValueError, match=error):
+        onchain_receipt.summarize(balance_inputs)

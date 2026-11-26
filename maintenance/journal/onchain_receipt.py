@@ -13,6 +13,7 @@ import sys
 
 _INPUTS = ("context", "block", "transaction", "receipt")
 _PUBLIC_INPUTS = (*_INPUTS, "finalized")
+_BALANCE_INPUTS = (*_PUBLIC_INPUTS, "balances")
 _MAX_INPUT = 256 * 1024
 _MAX_PACKAGE = 2 * 1024 * 1024
 _TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -48,6 +49,10 @@ def _load(payload: bytes, name: str, limit: int) -> dict:
 
 def _input_names(context: dict) -> tuple[str, ...]:
     kind = context.get("evidence_kind")
+    if "balance_check" in context:
+        if kind != "public_rpc_snapshot" or context["balance_check"] != "block_hash":
+            raise ValueError("balance_check must be block_hash on a public RPC snapshot")
+        return _BALANCE_INPUTS
     if kind == "synthetic":
         return _INPUTS
     if kind == "public_rpc_snapshot":
@@ -129,6 +134,79 @@ def _rpc_snapshot(context: dict, block: dict, reference: dict, finalized: dict) 
     ):
         raise ValueError("recorded finalized head is inconsistent with the transaction block")
     return {"rpc_source": source, "observed_finalized_head": {"number": height, "hash": block_hash}}
+
+
+def _balance_at(record: object, asset: str, wallet: str, block_hash: str) -> int:
+    entry = _object(record, "balance observation")
+    request = _object(entry.get("request"), "balance request")
+    request_id = request.get("id")
+    if type(request_id) is not int or request_id < 1:
+        raise ValueError("balance request id must be a positive integer")
+    block = {"blockHash": block_hash, "requireCanonical": True}
+    if asset == "native":
+        method, params = "eth_getBalance", [wallet, block]
+    else:
+        method, params = "eth_call", [{"to": asset, "data": "0x70a08231" + wallet[2:].zfill(64)}, block]
+    expected_request = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+    if _canonical(request) != _canonical(expected_request):
+        raise ValueError("balance request must match the wallet, asset and canonical block hash")
+    raw = entry.get("response")
+    if not isinstance(raw, str):
+        raise ValueError("balance observation requires the original RPC response text")
+    response = _load(raw.encode("utf-8"), "balance response", _MAX_INPUT)
+    if (
+        response.get("jsonrpc") != "2.0"
+        or "error" in response
+        or type(response.get("id")) is not int
+        or response["id"] != request_id
+    ):
+        raise ValueError("balance response must be successful and match the request id")
+    value = response.get("result")
+    if asset == "native":
+        return _quantity(value, "ETH balance")
+    return int(_hex(value, 32, "ERC-20 balanceOf result"), 16)
+
+
+def _balance_check(
+    payload: bytes, block: dict, wallet: str, tokens: list[dict], flows: list[dict], gas_wei: int
+) -> dict:
+    data = _load(payload, "balances", _MAX_INPUT)
+    if set(data) != {"before", "after"}:
+        raise ValueError("balances must contain before and after observations")
+    hashes = {
+        "before": _hex(block.get("parentHash"), 32, "block.parentHash"),
+        "after": _hex(block.get("hash"), 32, "block.hash"),
+    }
+    addresses = {"native": "ETH", **{token["address"]: token["symbol"] for token in tokens}}
+    deltas = dict.fromkeys(addresses, 0)
+    deltas["native"] = -gas_wei
+    for flow in flows:
+        deltas[flow["address"]] = int(flow["atomic_units"]) * (-1 if flow["direction"] == "out" else 1)
+
+    balances = {}
+    for phase, block_hash in hashes.items():
+        observations = _object(data[phase], f"{phase} observations")
+        if set(observations) != set(addresses):
+            raise ValueError("each balance snapshot must cover ETH and the two configured tokens")
+        balances[phase] = {
+            asset: _balance_at(record, asset, wallet, block_hash) for asset, record in observations.items()
+        }
+
+    result = []
+    for asset, symbol in addresses.items():
+        before, after = balances["before"][asset], balances["after"][asset]
+        if after - before != deltas[asset]:
+            raise ValueError(f"block balance delta does not match receipt flows and gas for {symbol}")
+        result.append(
+            {
+                "asset": asset,
+                "symbol": symbol,
+                "before_atomic": str(before),
+                "after_atomic": str(after),
+                "delta_atomic": str(after - before),
+            }
+        )
+    return {"parent_block_hash": hashes["before"], "block_hash": hashes["after"], "assets": result}
 
 
 def _indexed_address(value: object) -> str:
@@ -243,6 +321,8 @@ def summarize(inputs: dict[str, bytes]) -> dict:
         raise ValueError("invalid receipt status or logs")
     swap_index, flows = _swap_flows(logs, reference, addresses, tokens) if state else (None, [])
     gas_wei = gas_used * gas_price
+    if "balances" in inputs:
+        snapshot["block_balance_check"] = _balance_check(inputs["balances"], block, wallet, tokens, flows, gas_wei)
     return {
         "evidence_kind": context["evidence_kind"],
         "chain_id": 1,
