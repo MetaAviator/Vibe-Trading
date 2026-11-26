@@ -1,0 +1,11 @@
+{
+  "blockHash": "0xabababababababababababababababababababababababababababababababab",
+  "blockNumber": "0x121eac0",
+  "transactionIndex": "0x3",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0x2222222222222222222222222222222222222222",
+  "type": "0x2",
+  "hash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+  "chainId": "0x1",
+  "value": "0x0"
+}
