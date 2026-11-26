@@ -1,4 +1,4 @@
-"""Build or independently verify a synthetic Ethereum swap evidence package."""
+"""Build or independently verify an Ethereum swap evidence package."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import sys
 
 
 _INPUTS = ("context", "block", "transaction", "receipt")
+_PUBLIC_INPUTS = (*_INPUTS, "finalized")
 _MAX_INPUT = 256 * 1024
 _MAX_PACKAGE = 2 * 1024 * 1024
 _TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -43,6 +44,24 @@ def _load(payload: bytes, name: str, limit: int) -> dict:
     return _object(
         json.loads(payload.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=_reject_constant), name
     )
+
+
+def _input_names(context: dict) -> tuple[str, ...]:
+    kind = context.get("evidence_kind")
+    if kind == "synthetic":
+        return _INPUTS
+    if kind == "public_rpc_snapshot":
+        return _PUBLIC_INPUTS
+    raise ValueError("unsupported context.evidence_kind")
+
+
+def _source_object(payload: bytes, name: str, *, rpc: bool) -> dict:
+    source = _load(payload, name, _MAX_INPUT)
+    if not rpc:
+        return source
+    if source.get("jsonrpc") != "2.0" or "error" in source:
+        raise ValueError(f"{name} must contain a successful JSON-RPC 2.0 response")
+    return _object(source.get("result"), f"{name}.result")
 
 
 def _hex(value: object, size: int, field: str) -> str:
@@ -89,6 +108,27 @@ def _reference(entry: dict, hash_field: str = "transactionHash") -> dict:
         "block_number": _quantity(entry.get("blockNumber"), "blockNumber"),
         "transaction_index": _quantity(entry.get("transactionIndex"), "transactionIndex"),
     }
+
+
+def _rpc_snapshot(context: dict, block: dict, reference: dict, finalized: dict) -> dict:
+    source = context.get("rpc_source")
+    if not isinstance(source, str) or not re.fullmatch(r"[A-Za-z0-9 ._-]{1,64}", source) or not source.strip():
+        raise ValueError("rpc_source must be a short provider label")
+    transactions = block.get("transactions")
+    index = reference["transaction_index"]
+    if (
+        not isinstance(transactions, list)
+        or index >= len(transactions)
+        or _hex(transactions[index], 32, "block transaction hash") != reference["transaction_hash"]
+    ):
+        raise ValueError("transaction must be present at the recorded index in the block")
+    height = _quantity(finalized.get("number"), "finalized.number")
+    block_hash = _hex(finalized.get("hash"), 32, "finalized.hash")
+    if height < reference["block_number"] or (
+        height == reference["block_number"] and block_hash != reference["block_hash"]
+    ):
+        raise ValueError("recorded finalized head is inconsistent with the transaction block")
+    return {"rpc_source": source, "observed_finalized_head": {"number": height, "hash": block_hash}}
 
 
 def _indexed_address(value: object) -> str:
@@ -160,11 +200,14 @@ def _swap_flows(logs: list, reference: dict, addresses: tuple[str, str, str], to
 
 
 def summarize(inputs: dict[str, bytes]) -> dict:
-    if set(inputs) != set(_INPUTS):
-        raise ValueError("context, block, transaction and receipt are required")
-    context, block, transaction, receipt = (_load(inputs[name], name, _MAX_INPUT) for name in _INPUTS)
-    if context.get("evidence_kind") != "synthetic" or _quantity(transaction.get("chainId"), "chainId") != 1:
-        raise ValueError("expected synthetic evidence with Ethereum mainnet chain parameters")
+    context = _load(inputs.get("context", b"{}"), "context", _MAX_INPUT)
+    names = _input_names(context)
+    if set(inputs) != set(names):
+        raise ValueError(f"expected exactly these inputs: {', '.join(names)}")
+    public = context["evidence_kind"] == "public_rpc_snapshot"
+    block, transaction, receipt = (_source_object(inputs[name], name, rpc=public) for name in _INPUTS[1:])
+    if _quantity(transaction.get("chainId"), "chainId") != 1:
+        raise ValueError("expected Ethereum mainnet chain parameters")
     addresses = _addresses(context)
     wallet, router, pool = addresses
     tokens = _tokens(context.get("tokens"))
@@ -175,6 +218,11 @@ def summarize(inputs: dict[str, bytes]) -> dict:
         or _quantity(block.get("number"), "block.number") != reference["block_number"]
     ):
         raise ValueError("transaction, receipt and block references differ")
+    snapshot = (
+        _rpc_snapshot(context, block, reference, _source_object(inputs["finalized"], "finalized", rpc=True))
+        if public
+        else {}
+    )
     for entry in (transaction, receipt):
         if (
             _hex(entry.get("from"), 20, "from") != wallet
@@ -196,9 +244,10 @@ def summarize(inputs: dict[str, bytes]) -> dict:
     swap_index, flows = _swap_flows(logs, reference, addresses, tokens) if state else (None, [])
     gas_wei = gas_used * gas_price
     return {
-        "evidence_kind": "synthetic",
+        "evidence_kind": context["evidence_kind"],
         "chain_id": 1,
         **reference,
+        **snapshot,
         "block_timestamp": _quantity(block.get("timestamp"), "block.timestamp"),
         "wallet": wallet,
         "router": router,
@@ -212,7 +261,7 @@ def summarize(inputs: dict[str, bytes]) -> dict:
             "fee_wei": str(gas_wei),
             "fee_eth": _units(gas_wei, 18),
         },
-        "input_sha256": {name: sha256(inputs[name]).hexdigest() for name in _INPUTS},
+        "input_sha256": {name: sha256(inputs[name]).hexdigest() for name in names},
     }
 
 
@@ -225,7 +274,7 @@ def build_package(inputs: dict[str, bytes]) -> tuple[bytes, dict]:
     payload = _canonical(
         {
             "schema_version": 1,
-            "inputs": {name: inputs[name].decode("utf-8") for name in _INPUTS},
+            "inputs": {name: payload.decode("utf-8") for name, payload in inputs.items()},
             "report": report,
         }
     )
@@ -264,7 +313,7 @@ def _read(path: Path, limit: int) -> bytes:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest="mode", required=True)
-    build = modes.add_parser("build", help="Stage the four original JSON inputs and the recomputed report")
+    build = modes.add_parser("build", help="Stage the original JSON inputs and the recomputed report")
     build.add_argument("input_directory", type=Path)
     build.add_argument("--output", type=Path, required=True)
     verify = modes.add_parser("verify", help="Verify a package and recompute its results offline")
@@ -276,7 +325,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             from .review_bundle import _publish_new_file
 
             folder = options.input_directory.expanduser()
-            payload, report = build_package({name: _read(folder / f"{name}.json", _MAX_INPUT) for name in _INPUTS})
+            raw_context = _read(folder / "context.json", _MAX_INPUT)
+            names = _input_names(_load(raw_context, "context", _MAX_INPUT))
+            inputs = {name: _read(folder / f"{name}.json", _MAX_INPUT) for name in names[1:]}
+            payload, report = build_package({"context": raw_context, **inputs})
             _publish_new_file(options.output.expanduser(), payload)
         else:
             report = verify_package(_read(options.package.expanduser(), _MAX_PACKAGE), options.expected_sha256)

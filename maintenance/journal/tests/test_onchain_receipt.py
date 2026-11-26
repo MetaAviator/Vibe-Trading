@@ -125,3 +125,44 @@ def test_receiver_needs_only_one_trusted_python_module_and_the_evidence(inputs, 
         env=env,
     )
     assert json.loads(received) == report
+
+
+@pytest.fixture
+def rpc_inputs(inputs):
+    context, block, transaction = (json.loads(inputs[name]) for name in ("context", "block", "transaction"))
+    context.update(evidence_kind="public_rpc_snapshot", rpc_source="Example RPC")
+    block["transactions"] = ["0x" + "ab" * 32] * int(transaction["transactionIndex"], 16) + [transaction["hash"]]
+    raw = {
+        "block": block,
+        "transaction": transaction,
+        "receipt": json.loads(inputs["receipt"]),
+        "finalized": {"number": hex(int(block["number"], 16) + 64), "hash": "0x" + "99" * 32},
+    }
+    return {
+        "context": json.dumps(context).encode(),
+        **{name: json.dumps({"jsonrpc": "2.0", "id": 1, "result": body}).encode() for name, body in raw.items()},
+    }
+
+
+def test_rpc_package_retains_envelopes_and_recomputes(rpc_inputs):
+    payload, report = onchain_receipt.build_package(rpc_inputs)
+    assert report["evidence_kind"] == "public_rpc_snapshot"
+    assert report["rpc_source"] == "Example RPC"
+    assert report["observed_finalized_head"]["number"] == report["block_number"] + 64
+    assert report["gas"]["fee_eth"] == "0.003"
+    assert onchain_receipt.verify_package(payload, report["bundle_sha256"]) == report
+    assert {name: raw.encode() for name, raw in json.loads(payload)["inputs"].items()} == rpc_inputs
+
+
+@pytest.mark.parametrize(
+    ("name", "change", "message"),
+    [
+        ("block", lambda data: data["result"]["transactions"].pop(), "present at the recorded index"),
+        ("finalized", lambda data: data["result"].update(number="0x1"), "finalized head is inconsistent"),
+        ("receipt", lambda data: data.update(error={"code": -32603}), "successful JSON-RPC 2.0 response"),
+    ],
+)
+def test_rpc_package_rejects_inconsistent_snapshots(rpc_inputs, name, change, message):
+    _update(rpc_inputs, name, change)
+    with pytest.raises(ValueError, match=message):
+        onchain_receipt.build_package(rpc_inputs)
